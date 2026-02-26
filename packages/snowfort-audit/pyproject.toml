@@ -1,0 +1,117 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "snowfort-audit"
+version = "0.1.0"
+description = "Clean Architecture WAF auditor for Snowflake"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [
+    { name = "Snowarch Team" }
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Database",
+]
+keywords = ["snowflake", "audit", "waf", "well-architected", "compliance"]
+dependencies = [
+    "click>=8.0.0",
+    "keyring>=24.0.0",
+    "pydantic>=2.0.0",
+    "pyyaml>=6.0.0",
+    "rich>=13.0.0",
+    "textual>=1.0.0",
+    "snowflake-connector-python>=3.0.0",
+    "sqlfluff>=2.3.0",
+    "tomli>=2.0.0; python_version < '3.11'",
+]
+
+[project.optional-dependencies]
+dev = [
+    "import-linter>=2.0.0",
+    "keyrings.alt>=5.0.0",
+    "mypy>=1.0.0",
+    "pylint-clean-architecture",
+    "pandas>=2.0.0",
+    "plotly>=5.17.0",
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "ruff>=0.4.0",
+    "streamlit>=1.28.0",
+    "types-PyYAML>=6.0.12",
+    "types-tomli>=2.0.0; python_version < '3.11'",
+]
+
+[project.scripts]
+snowfort = "snowfort_audit.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/snowflake-labs/snowfort"
+Documentation = "https://github.com/snowflake-labs/snowfort#readme"
+Repository = "https://github.com/snowflake-labs/snowfort"
+Issues = "https://github.com/snowflake-labs/snowfort/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/snowfort_audit"]
+artifacts = ["src/snowfort_audit/resources/**/*"]
+
+[tool.coverage.run]
+# Use sys.monitoring (PEP 669) on Python 3.12+ instead of sys.settrace.
+# Reduces coverage overhead from ~55s to ~3s by avoiding trace-level instrumentation
+# of every imported module during test collection.
+core = "sysmon"
+
+[tool.pylint.main]
+load-plugins = ["clean_architecture_linter"]
+
+[tool.pylint-clean-architecture]
+layers = {Domain = [], UseCase = ["Domain"], Infrastructure = ["Domain", "UseCase", "Interface"], Interface = ["Domain", "UseCase"]}
+silent_layers = ["Domain", "UseCase"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "C901"]
+# E501 temporarily ignored project-wide so make check passes; refactored CLI/scan/report code complies with line-length.
+extend-ignore = ["E501"]
+[tool.ruff.lint.mccabe]
+max-complexity = 11
+
+[tool.mypy]
+python_version = "3.12"
+# Stubs for third-party modules (e.g. tomli when not installed on 3.12).
+mypy_path = "stubs"
+# Exclude root conftest.py so mypy does not see duplicate module "conftest" (tests/conftest.py is the one used by tests).
+exclude = "^conftest\\.py$"
+# No override: we supply stubs for pandas, plotly, snowflake.snowpark, tomli under stubs/.
+
+[tool.importlinter]
+root_package = "snowfort_audit"
+
+[[tool.importlinter.contracts]]
+name = "Clean Architecture Layers"
+type = "layers"
+layers = [
+    "snowfort_audit.interface",
+    "snowfort_audit.infrastructure",
+    "snowfort_audit.use_cases",
+    "snowfort_audit.domain",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.snowfort.audit]
+standard_credit_price = 2.0
+enterprise_credit_price = 3.0

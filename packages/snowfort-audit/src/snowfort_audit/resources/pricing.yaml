@@ -1,0 +1,9 @@
+# Snowarch Pricing Configuration
+currency: USD
+compute:
+  enterprise:
+    standard: 3.00
+    snowpark_optimized: 3.00 # Multiplier handled in code usually, but pricing is per credit. Snowpark uses 1.5x? No, usually 1:1 credit price, but higher burn rate (16 credits/hr for Medium).
+    # Actually, Snowpark-Optimized consumption rate is different, but credit price is same.
+    # Standard: Credit Price $$
+  edition: enterprise

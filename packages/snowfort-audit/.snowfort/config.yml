@@ -1,0 +1,5 @@
+account_topology: multi_env_single_account
+environments:
+- DEV
+- STG
+- PRD

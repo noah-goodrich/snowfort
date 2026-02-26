@@ -1,0 +1,15 @@
+# OS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+
+# Coverage
+.coverage
+coverage.json
+
+# Devcontainer secrets
+.devcontainer/.secrets.env

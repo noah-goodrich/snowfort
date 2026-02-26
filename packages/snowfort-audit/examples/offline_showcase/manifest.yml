@@ -1,0 +1,24 @@
+# Intentionally "messy" manifest for offline audit showcase.
+# Run: snowfort-audit scan --offline --path examples/offline_showcase
+# Expect: COST_001 (high auto_suspend), COST_005 (MCW + STANDARD), REL_003 (schema evolution)
+
+definitions:
+  # COST_001: Auto-suspend 3600s exceeds limit for DEV (60s)
+  DEV_SLOW_WH:
+    type: WAREHOUSE
+    warehouse_size: X-SMALL
+    auto_suspend: 3600
+    auto_resume: true
+  # COST_005: Multi-cluster with STANDARD scaling (should be ECONOMY)
+  DEV_MC_WH:
+    type: WAREHOUSE
+    warehouse_size: SMALL
+    max_cluster_count: 2
+    scaling_policy: STANDARD
+  # REL_003: enable_schema_evolution on table
+  fragile_events:
+    type: TABLE
+    database: DEV_BRONZE
+    schema: RAW
+    enable_schema_evolution: true
+    data_retention_time_in_days: 1

@@ -1,0 +1,6 @@
+"""Minimal stub for tomli (used when Python < 3.11; on 3.11+ we could use tomllib)."""
+
+from typing import Any
+
+def loads(s: str) -> dict[str, Any]: ...
+def load(fp: Any) -> dict[str, Any]: ...

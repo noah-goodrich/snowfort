@@ -1,0 +1,27 @@
+---
+description: Use pytest-coverage-impact to prioritize coverage work and reach 80%+
+globs: "**/test_*.py,**/conftest.py,pyproject.toml,Makefile,COVERAGE_PRIORITIES.md,coverage_impact.json"
+alwaysApply: false
+---
+
+# Test Coverage and pytest-coverage-impact
+
+When working on **test coverage** (e.g. reaching 80%, adding tests, or improving coverage):
+
+1. **Run coverage-impact first** to get a priority-ordered list:
+   - **Full run:** `make coverage-impact` (writes `coverage_impact.json` and prints "Top Functions by Priority").
+   - Use the **score** (impact × complexity) and **coverage %** columns; target **high score + low or N/A coverage** first.
+
+2. **Use the output to decide where to add tests:**
+   - Prefer adding or extending tests for **high priority** (high score) functions with coverage **&lt; 80%** or **N/A**.
+   - The table lists file and function; add unit tests that execute those code paths (mock cursor, fs, or gateway as needed).
+
+3. **Commands:**
+   - `make test` — run tests only.
+   - `make coverage` — coverage report (term + html).
+   - `make coverage-impact` — coverage + impact analysis and `coverage_impact.json`.
+   - Enforce 80%: `pytest tests/ --cov=src/snowfort_audit --cov-fail-under=80 -q`
+
+4. **See `COVERAGE_PRIORITIES.md`** for structure-based priorities (use cases, CLI, new rules, infrastructure) if you don't have impact data yet.
+
+Do not rely on guesswork: run `make coverage-impact` and work from the ranked list to reach 80%+.

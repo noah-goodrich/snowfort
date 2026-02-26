@@ -1,0 +1,21 @@
+---
+description: Always estimate and report token usage and cost before continuing with substantial work
+alwaysApply: true
+---
+
+# Token and Cost Awareness
+
+Before continuing with a **substantial** prompt, request, or multi-step task:
+
+1. **Estimate** token usage for this turn (or the planned action):
+   - **Input**: Approximate tokens for context (file contents, search results, your message).
+   - **Output**: Approximate tokens for the planned response or code changes.
+
+2. **Estimate cost** using Cursor/Claude pricing (e.g. ~$0.003/1K input, ~$0.015/1K output for Sonnet; adjust if your plan uses a different model).
+
+3. **Inform the user** in a short line at the start of your response, for example:
+   - *"Rough estimate this turn: ~X K input / ~Y K output → ~$Z. Proceeding with …"*
+
+4. **Before large actions** (e.g. many file edits, full test runs, broad refactors): give a one-line estimate and ask if they want to proceed, or break the work into smaller steps with per-step estimates.
+
+Keep estimates concise (one line unless the user asks for detail). Prefer batching and smaller responses when the user has asked for cost awareness.

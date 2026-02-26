@@ -1,0 +1,27 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: bash -c 'cd packages/snowfort-audit && ruff check src/ tests/'
+        language: system
+        pass_filenames: false
+        files: ^packages/snowfort-audit/
+      - id: ruff-format
+        name: ruff format
+        entry: bash -c 'cd packages/snowfort-audit && ruff format --check src/ tests/'
+        language: system
+        pass_filenames: false
+        files: ^packages/snowfort-audit/
+      - id: clean-architecture
+        name: architecture check
+        entry: bash -c 'cd packages/snowfort-audit && pylint --load-plugins=clean_architecture_linter --disable=all --enable=W9001,W9013,W9301,W9201,W9003,W9014 src/'
+        language: system
+        pass_filenames: false
+        files: ^packages/snowfort-audit/
+      - id: tests
+        name: tests
+        entry: bash -c 'cd packages/snowfort-audit && pytest tests/ -q --tb=short -p no:cacheprovider'
+        language: system
+        pass_filenames: false
+        files: ^packages/snowfort-audit/
