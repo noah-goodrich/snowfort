@@ -16,7 +16,7 @@
     "KEYRING_FILE_PATH": "/home/dev/.config/snowfort-keyring",
     "SNOWFLAKE_AUTH_FORCE_SERVER_URL": "1"
   },
-  "postStartCommand": "cp /host-home/.claude.json /home/dev/.claude.json 2>/dev/null || true; sudo mkdir -p /Users && sudo ln -sfn /home/dev /Users/noah",
+  "postStartCommand": "cp /host-home/.claude.json /home/dev/.claude.json 2>/dev/null || true; sudo mkdir -p /Users && sudo ln -sfn /home/dev /Users/noah; sudo chmod 666 /run/host-services/ssh-auth.sock 2>/dev/null || true",
   "shutdownAction": "stopCompose",
   "remoteUser": "dev",
   "updateRemoteUserUID": true

@@ -55,10 +55,10 @@ dev = [
 snowfort = "snowfort_audit.__main__:main"
 
 [project.urls]
-Homepage = "https://github.com/snowflake-labs/snowfort"
-Documentation = "https://github.com/snowflake-labs/snowfort#readme"
-Repository = "https://github.com/snowflake-labs/snowfort"
-Issues = "https://github.com/snowflake-labs/snowfort/issues"
+Homepage = "https://github.com/noah-goodrich/snowfort"
+Documentation = "https://github.com/noah-goodrich/snowfort/tree/main/packages/snowfort-audit#readme"
+Repository = "https://github.com/noah-goodrich/snowfort"
+Issues = "https://github.com/noah-goodrich/snowfort/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/snowfort_audit"]
