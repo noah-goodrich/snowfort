@@ -1,54 +1,61 @@
-# Project Plan: Snowfort Audit — PyPI-Ready Release
+# Project Plan: Snowfort Audit v0.2.0 — Performance Engineering
 
-*Established: 2026-04-03*
+*Established: 2026-04-08*
 
 ## Objective
 
-Prepare snowfort-audit for public distribution: clean up git history, restore SSO login
-support, fix build blockers, and make the package publishable to PyPI.
+Implement all 4 performance strategies (shared query cache, N+1 elimination,
+batch view DDL, SQL rewrites) plus per-rule timing instrumentation so
+production scans complete in under 60 minutes.
 
 ## Acceptance Criteria
 
-- [ ] Git history is clean with logical, atomic commits
-  - Verify: `git log --oneline` shows multiple descriptive commits
-- [x] SSO/browser auth is exposed in the CLI login menu
-  - Verify: `snowfort login --help` shows browser; login flow tests pass
-  - Verified: 2026-04-07
-- [x] Package builds cleanly from monorepo path
-  - Verify: `python -m build` produces wheel + sdist in `dist/`
-  - Verified: 2026-04-07 (snowfort_audit-0.1.0)
-- [x] Dev dependency on `pytest-coverage-impact @ file:///` removed or made optional
-  - Verify: `pip install -e ".[dev]"` works without local file path
-  - Verified: 2026-04-07 (install succeeds)
-- [x] `make check` passes (lint + mypy + tests + coverage >= 80%)
+- [ ] Per-rule timing: `--profile` flag prints per-rule execution time sorted
+      by duration; works with sequential and parallel modes
+  - Verify: `snowfort audit scan --offline --path examples/offline_showcase --profile`
+    shows timing per rule
+- [ ] Shared query cache: common queries (SHOW WAREHOUSES, SHOW USERS,
+      SHOW DATABASES, TAG_REFERENCES, TABLES) run once via ScanContext
+  - Verify: With `--log-level DEBUG`, each shared query appears exactly once
+- [ ] N+1 elimination: COST_009, PERF_001, SEC_008 use batch queries instead
+      of per-object loops
+  - Verify: `--profile` shows these rules complete in <5s each
+- [ ] Batch view DDL: view-phase uses ACCOUNT_USAGE.VIEWS instead of per-view
+      GET_DDL loop
+  - Verify: view-phase timing is a single query, not N queries
+- [ ] SQL rewrites: COST_007 and COST_013 use CTE + LEFT JOIN instead of
+      correlated NOT EXISTS with FLATTEN
+  - Verify: no `NOT EXISTS ... LATERAL FLATTEN` pattern in rule source
+- [ ] Default workers changed from 1 to 4
+  - Verify: `snowfort audit scan --help` shows `default=4`
+- [ ] Nothing breaks: `make check` passes (lint + mypy + tests + coverage >= 80%)
   - Verify: `make check` exits 0
-  - Verified: 2026-04-07 (665 passed, 86.27% coverage)
-- [x] Nothing breaks — all existing tests pass, CLI help works, offline scan runs
-  - Verify: `pytest tests/ -v && snowfort audit --help`
-  - Verified: 2026-04-07
-- [x] Doc-code sync: RULES_CATALOG.md, README, and RULE_APPLICABILITY_MATRIX.md
-      match the 83 rules in `get_all_rules()`
-  - Verified: 2026-04-07
 
 ## Scope Boundaries
 
-- NOT building the Cortex Code skill (separate project)
-- NOT publishing to PyPI (just making it publishable)
-- NOT restructuring the monorepo root
+- NOT building Snowflake persistence (SNOWFORT database writes)
+- NOT adding bootstrap pre-flight check
+- NOT adding new rules or closing Q1 2026 feature gaps
 - If done early: Ship, don't expand.
 
 ## Ship Definition
 
-Committed to main with clean git history + `make check` passes +
-`python -m build` succeeds + SSO login works.
+Committed to main + `make check` passes + `--profile` works on offline scan +
+version bumped to 0.2.0 + pushed to GitHub + PyPI release published.
 
 ## Timeline
 
-Target: this session
-Estimated effort: 1 session, ~2-3 hours
+Target: 3-4 sessions
+- Session 1: Per-rule timing + default workers + batch view DDL (Strategy 3)
+- Session 2: Shared query cache (Strategy 1) — ScanContext + rule refactors
+- Session 3: N+1 elimination (Strategy 2) + SQL rewrites (Strategy 4)
+- Session 4 (if needed): Fix breakage, tests, ship
 
 ## Risks
 
-- Git history rewrite on initial WIP commit — low risk since no remote/branches
-- `pytest-coverage-impact` removal may break `make coverage-impact` target
-- Large unstaged diff requires care during git cleanup
+- ACCOUNT_USAGE.VIEWS may not be accessible with all role configs — need
+  graceful fallback to per-view GET_DDL
+- Shared query cache changes the Rule interface — every rule using SHOW
+  WAREHOUSES etc. needs ScanContext. Biggest refactor, 15+ files.
+- Parallel workers + shared cache must be thread-safe — ScanContext must
+  be immutable/frozen

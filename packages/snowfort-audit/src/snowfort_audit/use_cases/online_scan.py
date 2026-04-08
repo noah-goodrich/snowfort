@@ -1,6 +1,7 @@
 import ast
 import inspect
 import textwrap
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
@@ -12,6 +13,9 @@ from ..domain.rule_definitions import (
     Rule,
     Violation,
 )
+
+# (rule_id, rule_name, duration_seconds)
+RuleTiming = tuple[str, str, float]
 
 
 def _is_system_or_tool_violation(v: Violation, include_snowfort_db: bool) -> bool:
@@ -64,11 +68,14 @@ def _run_rules_chunk(
     gateway: Any,
     rules_chunk: list[tuple[int, Rule]],
     worker_id: int,
-) -> list[Violation]:
+    profile: bool = False,
+) -> tuple[list[Violation], list[RuleTiming]]:
     """Run a subset of rules on a dedicated connection. Used by parallel scan."""
     out: list[Violation] = []
+    timings: list[RuleTiming] = []
     cursor = gateway.get_cursor_for_worker(worker_id)
     for _idx, rule in rules_chunk:
+        t0 = time.perf_counter()
         try:
             found = rule.check_online(cursor)
             if found:
@@ -76,7 +83,9 @@ def _run_rules_chunk(
         except Exception:
             # Rule normally catches and logs; if it raised, we continue (no telemetry in worker thread)
             pass
-    return out
+        if profile:
+            timings.append((rule.id, rule.name, time.perf_counter() - t0))
+    return out, timings
 
 
 class OnlineScanUseCase:
@@ -88,19 +97,23 @@ class OnlineScanUseCase:
         self.gateway = gateway
         self.rules = rules
         self.telemetry = telemetry
+        self.profile_timings: list[RuleTiming] = []
 
     def execute(
         self,
         workers: int = 1,
         include_snowfort_db: bool = False,
+        profile: bool = False,
     ) -> list[Violation]:
         """Scans a live Snowflake account for WAF violations.
         workers: 1 = sequential; >1 = parallel (if gateway supports it).
         include_snowfort_db: if True, include SNOWFORT DB in view-phase (auditing Snowfort itself).
+        profile: if True, collect per-rule timing in self.profile_timings.
         Establishes one connection first; with MFA, extra connections may fail (fall back to 1 worker).
         """
         total = len(self.rules)
         self.telemetry.step("Engaging Online Sensors: Scanning live Snowflake environment...")
+        self.profile_timings = []
 
         # Establish one good connection first so we don't spam multiple MFA/connection attempts in parallel
         try:
@@ -123,12 +136,13 @@ class OnlineScanUseCase:
 
         if use_parallel:
             self.telemetry.info(f"  Running {total} rules in parallel with {workers} workers.")
-            violations = self._execute_parallel(workers)
+            violations, timings = self._execute_parallel(workers, profile)
         else:
             self.telemetry.info(f"  Running {total} rules (--workers N for parallel, --log-level DEBUG for detail).")
-            violations = self._execute_sequential()
+            violations, timings = self._execute_sequential(profile)
 
-        violations = self._execute_view_phase(violations, include_snowfort_db)
+        violations, view_timings = self._execute_view_phase(violations, include_snowfort_db, profile)
+        self.profile_timings = timings + view_timings
 
         before = len(violations)
         violations = [v for v in violations if not _is_system_or_tool_violation(v, include_snowfort_db)]
@@ -138,8 +152,16 @@ class OnlineScanUseCase:
         self.telemetry.info(f"  Completed: {len(violations)} total violation(s) from {total} rules.")
         return violations
 
-    def _execute_view_phase(self, violations: list[Violation], include_snowfort_db: bool) -> list[Violation]:
-        """Run per-view rules; returns violations list (may be extended)."""
+    def _execute_view_phase(
+        self,
+        violations: list[Violation],
+        include_snowfort_db: bool,
+        profile: bool = False,
+    ) -> tuple[list[Violation], list[RuleTiming]]:
+        """Run per-view rules using batch DDL from ACCOUNT_USAGE.VIEWS.
+        Falls back to per-view GET_DDL if ACCOUNT_USAGE.VIEWS is unavailable.
+        Returns (violations, timings).
+        """
         excluded_dbs = EXCLUDED_DATABASES_DEFAULT - {"SNOWFORT"} if include_snowfort_db else EXCLUDED_DATABASES_DEFAULT
         excluded_db_like = frozenset(
             (
@@ -156,55 +178,152 @@ class OnlineScanUseCase:
                 "TRUST_CENTER",
             )
         )
+        timings: list[RuleTiming] = []
         try:
             cur: SnowflakeCursorProtocol = self.gateway.get_cursor()
-            cur.execute("SHOW VIEWS IN ACCOUNT")
-            all_rows = cur.fetchall()
-            DB_NAME_IDX, SCHEMA_NAME_IDX, VIEW_NAME_IDX = 4, 5, 1
-            views = [
-                r
-                for r in all_rows
-                if len(r) > max(DB_NAME_IDX, SCHEMA_NAME_IDX, VIEW_NAME_IDX)
-                and (r[DB_NAME_IDX] or "").upper() not in excluded_dbs
-                and (r[DB_NAME_IDX] or "").upper() not in excluded_db_like
-            ]
-            n_views = len(views)
-            if n_views == 0:
-                self.telemetry.info("  No user views to check (SNOWFLAKE/SNOWFORT and system DBs excluded).")
-                return violations
             rules_for_view = [r for r in self.rules if _check_online_uses_resource_name(r)]
-            n_per_view = len(rules_for_view)
-            if n_per_view == 0:
+            if not rules_for_view:
                 self.telemetry.info("  No rules use view name; skipping per-view phase.")
-                return violations
-            n_checks = n_views * n_per_view
-            self.telemetry.info(
-                f"  Checking {n_views} views with {n_per_view} view-scoped rule(s) (~{n_checks} checks)..."
-            )
-            view_progress_interval = max(1, min(10, n_views // 10))
-            for v_idx, view in enumerate(views):
-                view_name = f"{view[DB_NAME_IDX]}.{view[SCHEMA_NAME_IDX]}.{view[VIEW_NAME_IDX]}"
-                self.telemetry.debug(f"    View [{v_idx + 1}/{n_views}] {view_name}")
-                if (v_idx + 1) % view_progress_interval == 0 or (v_idx + 1) == n_views:
-                    self.telemetry.info(f"  Checked {v_idx + 1}/{n_views} views...")
-                for rule in rules_for_view:
-                    try:
-                        found = rule.check_online(cur, view_name)
-                        if found:
-                            violations.extend(found)
-                    except Exception as e:
-                        self.telemetry.error(f"Rule execution failed: {e}")
-                        self.telemetry.debug(f"      -> {rule.id} on {view_name}")
+                return violations, timings
+
+            # Strategy 3: try batch DDL via ACCOUNT_USAGE.VIEWS (one query instead of N GET_DDL calls)
+            ddl_map: dict[str, str] | None = self._fetch_batch_ddl(cur, excluded_dbs, excluded_db_like)
+
+            if ddl_map is not None:
+                violations, timings = self._run_view_phase_batch(cur, violations, rules_for_view, ddl_map, profile)
+            else:
+                violations, timings = self._run_view_phase_fallback(
+                    cur, violations, rules_for_view, excluded_dbs, excluded_db_like, profile
+                )
+
         except (RuntimeError, ValueError) as e:
             self.telemetry.error(f"Failed to fetch views for online scan: {e}")
-        return violations
+        return violations, timings
 
-    def _execute_sequential(self) -> list[Violation]:
+    def _fetch_batch_ddl(
+        self,
+        cur: SnowflakeCursorProtocol,
+        excluded_dbs: frozenset,
+        excluded_db_like: frozenset,
+    ) -> dict[str, str] | None:
+        """Query ACCOUNT_USAGE.VIEWS to get all view DDLs at once.
+        Returns {view_name: ddl} dict, or None if unavailable (triggers fallback).
+        """
+        try:
+            cur.execute(
+                "SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME, VIEW_DEFINITION"
+                " FROM SNOWFLAKE.ACCOUNT_USAGE.VIEWS"
+                " WHERE DELETED IS NULL AND VIEW_DEFINITION IS NOT NULL"
+            )
+            rows = cur.fetchall()
+            ddl_map: dict[str, str] = {}
+            for row in rows:
+                if len(row) < 4:
+                    continue
+                catalog = (row[0] or "").upper()
+                if catalog in excluded_dbs or catalog in excluded_db_like:
+                    continue
+                view_name = f"{row[0]}.{row[1]}.{row[2]}"
+                ddl_map[view_name] = row[3] or ""
+            self.telemetry.debug(f"  Batch DDL: fetched DDL for {len(ddl_map)} views via ACCOUNT_USAGE.VIEWS.")
+            return ddl_map
+        except Exception as e:
+            self.telemetry.debug(f"  ACCOUNT_USAGE.VIEWS unavailable, falling back to per-view GET_DDL: {e}")
+            return None
+
+    def _run_view_phase_batch(
+        self,
+        cur: SnowflakeCursorProtocol,
+        violations: list[Violation],
+        rules_for_view: list[Rule],
+        ddl_map: dict[str, str],
+        profile: bool,
+    ) -> tuple[list[Violation], list[RuleTiming]]:
+        """Run view-scoped rules against pre-fetched DDLs (batch path)."""
+        timings: list[RuleTiming] = []
+        n_views = len(ddl_map)
+        n_per_view = len(rules_for_view)
+        if n_views == 0:
+            self.telemetry.info("  No user views to check (system DBs excluded).")
+            return violations, timings
+        self.telemetry.info(f"  Checking {n_views} views with {n_per_view} view-scoped rule(s) (batch DDL)...")
+        rule_elapsed: dict[str, float] = {}
+        for view_name, ddl in ddl_map.items():
+            for rule in rules_for_view:
+                t0 = time.perf_counter()
+                try:
+                    found = rule.check_static(ddl, view_name)
+                    if found:
+                        violations.extend(found)
+                except Exception as e:
+                    self.telemetry.error(f"Rule execution failed: {e}")
+                    self.telemetry.debug(f"      -> {rule.id} on {view_name}")
+                if profile:
+                    rule_elapsed[rule.id] = rule_elapsed.get(rule.id, 0.0) + (time.perf_counter() - t0)
+        if profile:
+            rule_name_map = {r.id: r.name for r in rules_for_view}
+            timings = [(rid, rule_name_map[rid], elapsed) for rid, elapsed in rule_elapsed.items()]
+        return violations, timings
+
+    def _run_view_phase_fallback(
+        self,
+        cur: SnowflakeCursorProtocol,
+        violations: list[Violation],
+        rules_for_view: list[Rule],
+        excluded_dbs: frozenset,
+        excluded_db_like: frozenset,
+        profile: bool,
+    ) -> tuple[list[Violation], list[RuleTiming]]:
+        """Run view-scoped rules via SHOW VIEWS + per-view GET_DDL (fallback path)."""
+        timings: list[RuleTiming] = []
+        cur.execute("SHOW VIEWS IN ACCOUNT")
+        all_rows = cur.fetchall()
+        DB_NAME_IDX, SCHEMA_NAME_IDX, VIEW_NAME_IDX = 4, 5, 1
+        views = [
+            r
+            for r in all_rows
+            if len(r) > max(DB_NAME_IDX, SCHEMA_NAME_IDX, VIEW_NAME_IDX)
+            and (r[DB_NAME_IDX] or "").upper() not in excluded_dbs
+            and (r[DB_NAME_IDX] or "").upper() not in excluded_db_like
+        ]
+        n_views = len(views)
+        n_per_view = len(rules_for_view)
+        if n_views == 0:
+            self.telemetry.info("  No user views to check (SNOWFLAKE/SNOWFORT and system DBs excluded).")
+            return violations, timings
+        n_checks = n_views * n_per_view
+        self.telemetry.info(f"  Checking {n_views} views with {n_per_view} view-scoped rule(s) (~{n_checks} checks)...")
+        view_progress_interval = max(1, min(10, n_views // 10))
+        rule_elapsed: dict[str, float] = {}
+        for v_idx, view in enumerate(views):
+            view_name = f"{view[DB_NAME_IDX]}.{view[SCHEMA_NAME_IDX]}.{view[VIEW_NAME_IDX]}"
+            self.telemetry.debug(f"    View [{v_idx + 1}/{n_views}] {view_name}")
+            if (v_idx + 1) % view_progress_interval == 0 or (v_idx + 1) == n_views:
+                self.telemetry.info(f"  Checked {v_idx + 1}/{n_views} views...")
+            for rule in rules_for_view:
+                t0 = time.perf_counter()
+                try:
+                    found = rule.check_online(cur, view_name)
+                    if found:
+                        violations.extend(found)
+                except Exception as e:
+                    self.telemetry.error(f"Rule execution failed: {e}")
+                    self.telemetry.debug(f"      -> {rule.id} on {view_name}")
+                if profile:
+                    rule_elapsed[rule.id] = rule_elapsed.get(rule.id, 0.0) + (time.perf_counter() - t0)
+        if profile:
+            rule_name_map = {r.id: r.name for r in rules_for_view}
+            timings = [(rid, rule_name_map[rid], elapsed) for rid, elapsed in rule_elapsed.items()]
+        return violations, timings
+
+    def _execute_sequential(self, profile: bool = False) -> tuple[list[Violation], list[RuleTiming]]:
         cur: SnowflakeCursorProtocol = self.gateway.get_cursor()
         violations: list[Violation] = []
+        timings: list[RuleTiming] = []
         total = len(self.rules)
         for i, rule in enumerate(self.rules):
             self.telemetry.info(f"  [{i + 1}/{total}] {rule.id}: {rule.name}")
+            t0 = time.perf_counter()
             try:
                 found = rule.check_online(cur)
                 if found:
@@ -213,9 +332,11 @@ class OnlineScanUseCase:
             except Exception as e:
                 self.telemetry.error(f"Rule execution failed: {e}")
                 self.telemetry.debug(f"      -> exception in {rule.id}")
-        return violations
+            if profile:
+                timings.append((rule.id, rule.name, time.perf_counter() - t0))
+        return violations, timings
 
-    def _execute_parallel(self, workers: int) -> list[Violation]:
+    def _execute_parallel(self, workers: int, profile: bool = False) -> tuple[list[Violation], list[RuleTiming]]:
         total = len(self.rules)
         # Partition rules: worker i gets indices i, i+workers, i+2*workers, ...
         chunks: list[list[tuple[int, Rule]]] = [[] for _ in range(workers)]
@@ -223,18 +344,22 @@ class OnlineScanUseCase:
             chunks[i % workers].append((i, rule))
 
         violations: list[Violation] = []
+        timings: list[RuleTiming] = []
         n_done = 0
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {
-                executor.submit(_run_rules_chunk, self.gateway, chunks[w], w): w for w in range(workers) if chunks[w]
+                executor.submit(_run_rules_chunk, self.gateway, chunks[w], w, profile): w
+                for w in range(workers)
+                if chunks[w]
             }
             for fut in as_completed(futures):
                 worker_id = futures[fut]
                 try:
-                    out = fut.result()
+                    out, chunk_timings = fut.result()
                     violations.extend(out)
+                    timings.extend(chunk_timings)
                 except Exception as e:
                     self.telemetry.error(f"Rule execution failed: {e}")
                 n_done += len(chunks[worker_id])
                 self.telemetry.info(f"  Worker {worker_id + 1}/{workers}: {n_done}/{total} rules done.")
-        return violations
+        return violations, timings

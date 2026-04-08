@@ -6,6 +6,7 @@ from pathlib import Path
 import click
 from rich.console import Console
 from rich.panel import Panel
+from rich.table import Table
 
 from snowfort_audit.domain.results import AuditResult
 from snowfort_audit.interface.cli import (
@@ -62,14 +63,40 @@ def _run_cortex_summary(container, gateway, violations: list) -> None:
         telemetry.error(f"Cortex summary failed: {exc}")
 
 
-def _run_offline_scan(container, path, rules_dir, rule_ids: list[str] | None = None) -> tuple:
+def _fmt_duration(seconds: float) -> str:
+    """Format a duration for the profile table."""
+    if seconds < 1.0:
+        return f"{seconds * 1000:.0f}ms"
+    if seconds < 60:
+        return f"{seconds:.2f}s"
+    mins, secs = divmod(seconds, 60)
+    return f"{int(mins)}m {secs:.1f}s"
+
+
+def _print_profile_table(timings: list, console: Console) -> None:
+    """Print per-rule timing sorted by duration (slowest first)."""
+    if not timings:
+        return
+    table = Table(title="Rule Profile (slowest first)", show_lines=True)
+    table.add_column("#", style="dim", width=4, justify="right")
+    table.add_column("Rule ID", style="cyan", no_wrap=True)
+    table.add_column("Name")
+    table.add_column("Duration", justify="right", style="yellow")
+    sorted_timings = sorted(timings, key=lambda x: x[2], reverse=True)
+    for i, (rule_id, rule_name, duration_s) in enumerate(sorted_timings, 1):
+        table.add_row(str(i), rule_id, rule_name, _fmt_duration(duration_s))
+    console.print(table)
+
+
+def _run_offline_scan(container, path, rules_dir, rule_ids: list[str] | None = None, profile: bool = False) -> tuple:
     container.register_singleton("CustomRulesDir", rules_dir)
     if rule_ids:
         container.register_singleton("ScanRuleIds", frozenset(r.upper() for r in rule_ids))
     use_case = container.get("OfflineScanUseCase")
-    violations = use_case.execute(path)
+    violations = use_case.execute(path, profile=profile)
     rules = container.get_rules()
-    return violations, rules
+    timings = use_case.profile_timings if profile else []
+    return violations, rules, timings
 
 
 def _run_online_scan(
@@ -79,9 +106,10 @@ def _run_online_scan(
     role,
     authenticator,
     rules_dir,
-    workers: int = 1,
+    workers: int = 4,
     include_snowfort_db: bool = False,
     rule_ids: list[str] | None = None,
+    profile: bool = False,
 ) -> tuple:
     if rule_ids:
         container.register_singleton("ScanRuleIds", frozenset(r.upper() for r in rule_ids))
@@ -101,9 +129,10 @@ def _run_online_scan(
     telemetry = container.get("TelemetryPort")
     telemetry.step("Running online rules...")
     use_case = container.get("OnlineScanUseCase")
-    violations = use_case.execute(workers=workers, include_snowfort_db=include_snowfort_db)
+    violations = use_case.execute(workers=workers, include_snowfort_db=include_snowfort_db, profile=profile)
     rules = container.get_rules()
-    return violations, rules, gateway
+    timings = use_case.profile_timings if profile else []
+    return violations, rules, gateway, timings
 
 
 def _emit_scan_output(
@@ -158,8 +187,8 @@ def _log_scan_preamble(telemetry, quiet: bool, path: str, rule_ids: tuple, corte
 @click.option(
     "--workers",
     type=int,
-    default=1,
-    help="Parallel workers for account-level rules (1=sequential). Try 4–8 to reduce scan time.",
+    default=4,
+    help="Parallel workers for account-level rules (1=sequential). Default: 4.",
 )
 @click.option(
     "--include-snowfort-db",
@@ -206,6 +235,7 @@ def _log_scan_preamble(telemetry, quiet: bool, path: str, rule_ids: tuple, corte
     help="Billing model for cost context (On-Demand vs Reserved Capacity); influences cost recommendations.",
 )
 @click.option("--quiet", "-q", is_flag=True, help="Minimal output: score and violation count only.")
+@click.option("--profile", is_flag=True, help="Print per-rule execution time sorted by duration after scan.")
 @click.option(
     "--no-tui",
     "no_tui",
@@ -219,6 +249,7 @@ def scan(
     verbose: bool,  # noqa: ARG001
     log_level: str,
     quiet: bool,
+    profile: bool,
     no_tui: bool,
     workers: int,
     include_snowfort_db: bool,
@@ -249,15 +280,18 @@ def scan(
     violations = []
     rules = []
     gateway = None
+    profile_timings = []
     try:
         with timed_operation("Scan"):
             rule_filter = list(rule_ids) if rule_ids else None
             if offline:
-                violations, rules = _run_offline_scan(container, path, rules_dir, rule_ids=rule_filter)
+                violations, rules, profile_timings = _run_offline_scan(
+                    container, path, rules_dir, rule_ids=rule_filter, profile=profile
+                )
                 target_name = path
                 account_id = ""
             else:
-                violations, rules, gateway = _run_online_scan(
+                violations, rules, gateway, profile_timings = _run_online_scan(
                     container,
                     account,
                     user,
@@ -267,6 +301,7 @@ def scan(
                     workers,
                     include_snowfort_db,
                     rule_ids=rule_filter,
+                    profile=profile,
                 )
                 target_name = "Snowflake account"
                 try:
@@ -290,6 +325,9 @@ def scan(
                 verbose,
                 audit_metadata,
             )
+
+            if profile and profile_timings:
+                _print_profile_table(profile_timings, Console(stderr=True))
 
             if _after_scan_report(
                 path,

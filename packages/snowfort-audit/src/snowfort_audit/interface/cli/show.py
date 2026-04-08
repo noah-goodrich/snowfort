@@ -88,7 +88,7 @@ def _do_rescan(
         ensure_account_config_fn = container.get("ensure_account_config")
         ensure_account_config_fn(project_root, prompt_fn=prompt_fn)
     if offline:
-        violations, rules = _run_offline_scan(container, path, rules_dir)
+        violations, rules, _timings = _run_offline_scan(container, path, rules_dir)
         target_name = path
         audit_metadata = {"account_id": ""}
     else:
@@ -104,7 +104,7 @@ def _do_rescan(
         gateway = gateway_factory(options)
         container.register_singleton("SnowflakeClient", gateway)
         container.register_singleton("CustomRulesDir", rules_dir)
-        violations, rules, gateway = _run_online_scan(
+        violations, rules, gateway, _timings = _run_online_scan(
             container, account, user, role, authenticator, rules_dir, 1, False
         )
         target_name = "Snowflake account"

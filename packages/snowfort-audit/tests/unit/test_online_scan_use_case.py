@@ -83,10 +83,10 @@ def test_online_scan_execute_cursor_raises(telemetry):
 
 
 def test_online_scan_execute_show_views_raises(telemetry):
-    """execute() handles SHOW VIEWS failure and still returns rule-level violations."""
+    """execute() handles view-fetch failure and still returns rule-level violations."""
 
     def execute_side_effect(arg):
-        if "SHOW VIEWS" in arg:
+        if "ACCOUNT_USAGE.VIEWS" in arg or "SHOW VIEWS" in arg:
             raise RuntimeError("Permission denied")
 
     mock_cursor = MagicMock()
@@ -95,10 +95,12 @@ def test_online_scan_execute_show_views_raises(telemetry):
     mock_gateway = MagicMock()
     mock_gateway.get_cursor.return_value = mock_cursor
 
-    mock_rule = MagicMock()
-    mock_rule.check_online.return_value = []
+    # Need a view-scoped rule so the view phase actually runs and hits the failing queries
+    validator = MagicMock()
+    validator.validate.return_value = []
+    rule = SelectStarCheck(validator=validator, telemetry=telemetry)
 
-    use_case = OnlineScanUseCase(mock_gateway, [mock_rule], telemetry)
+    use_case = OnlineScanUseCase(mock_gateway, [rule], telemetry)
     violations = use_case.execute()
     telemetry.error.assert_called()
     assert isinstance(violations, list)
@@ -118,14 +120,14 @@ def test_check_online_uses_resource_name_account_budget_false(telemetry):
     assert _check_online_uses_resource_name(rule) is False
 
 
-def test_online_scan_execute_view_loop_calls_check_online_per_view(telemetry):
-    """execute() runs check_online(cur, view_name) only for rules that use view name (e.g. SelectStarCheck)."""
+def test_online_scan_execute_view_phase_batch_ddl(telemetry):
+    """execute() uses ACCOUNT_USAGE.VIEWS batch DDL and calls check_static per view."""
     mock_cursor = MagicMock()
     mock_cursor.execute.return_value = None
-    # SHOW VIEWS columns: created_on(0), name(1), reserved(2), kind(3), database_name(4), schema_name(5)
+    # ACCOUNT_USAGE.VIEWS format: (TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME, VIEW_DEFINITION)
     mock_cursor.fetchall.return_value = [
-        ("created_on", "V1", "r", "VIEW", "DB1", "SCHEMA1"),
-        ("created_on", "V2", "r", "VIEW", "DB2", "SCHEMA2"),
+        ("DB1", "SCHEMA1", "V1", "SELECT col FROM t1"),
+        ("DB2", "SCHEMA2", "V2", "SELECT col FROM t2"),
     ]
     mock_gateway = MagicMock()
     mock_gateway.get_cursor.return_value = mock_cursor
@@ -133,7 +135,41 @@ def test_online_scan_execute_view_loop_calls_check_online_per_view(telemetry):
     validator = MagicMock()
     validator.validate.return_value = []
     rule = SelectStarCheck(validator=validator, telemetry=telemetry)
-    rule.check_online = MagicMock(return_value=[])  # avoid real GET_DDL
+    rule.check_static = MagicMock(return_value=[])
+
+    use_case = OnlineScanUseCase(mock_gateway, [rule], telemetry)
+    use_case.execute()
+
+    # check_static called once per view in batch path
+    assert rule.check_static.call_count == 2
+    rule.check_static.assert_any_call("SELECT col FROM t1", "DB1.SCHEMA1.V1")
+    rule.check_static.assert_any_call("SELECT col FROM t2", "DB2.SCHEMA2.V2")
+
+
+def test_online_scan_execute_view_fallback_uses_check_online(telemetry):
+    """When ACCOUNT_USAGE.VIEWS fails, falls back to SHOW VIEWS + check_online per view."""
+    call_num = [0]
+
+    def execute_side_effect(arg):
+        call_num[0] += 1
+        if "ACCOUNT_USAGE.VIEWS" in arg:
+            raise RuntimeError("Insufficient privileges")
+
+    # SHOW VIEWS columns: created_on(0), name(1), reserved(2), kind(3), database_name(4), schema_name(5)
+    show_views_rows = [
+        ("created_on", "V1", "r", "VIEW", "DB1", "SCHEMA1"),
+        ("created_on", "V2", "r", "VIEW", "DB2", "SCHEMA2"),
+    ]
+    mock_cursor = MagicMock()
+    mock_cursor.execute.side_effect = execute_side_effect
+    mock_cursor.fetchall.return_value = show_views_rows
+    mock_gateway = MagicMock()
+    mock_gateway.get_cursor.return_value = mock_cursor
+
+    validator = MagicMock()
+    validator.validate.return_value = []
+    rule = SelectStarCheck(validator=validator, telemetry=telemetry)
+    rule.check_online = MagicMock(return_value=[])
 
     use_case = OnlineScanUseCase(mock_gateway, [rule], telemetry)
     use_case.execute()
