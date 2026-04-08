@@ -1,6 +1,7 @@
 # Project Plan: Snowfort Audit v0.2.0 — Performance Engineering
 
 *Established: 2026-04-08*
+*Shipped: 2026-04-08 — committed to main, pushed to GitHub*
 
 ## Objective
 
@@ -10,25 +11,25 @@ production scans complete in under 60 minutes.
 
 ## Acceptance Criteria
 
-- [ ] Per-rule timing: `--profile` flag prints per-rule execution time sorted
+- [x] Per-rule timing: `--profile` flag prints per-rule execution time sorted
       by duration; works with sequential and parallel modes
   - Verify: `snowfort audit scan --offline --path examples/offline_showcase --profile`
     shows timing per rule
-- [ ] Shared query cache: common queries (SHOW WAREHOUSES, SHOW USERS,
+- [x] Shared query cache: common queries (SHOW WAREHOUSES, SHOW USERS,
       SHOW DATABASES, TAG_REFERENCES, TABLES) run once via ScanContext
   - Verify: With `--log-level DEBUG`, each shared query appears exactly once
-- [ ] N+1 elimination: COST_009, PERF_001, SEC_008 use batch queries instead
+- [x] N+1 elimination: COST_009, PERF_001, SEC_008 use batch queries instead
       of per-object loops
   - Verify: `--profile` shows these rules complete in <5s each
-- [ ] Batch view DDL: view-phase uses ACCOUNT_USAGE.VIEWS instead of per-view
+- [x] Batch view DDL: view-phase uses ACCOUNT_USAGE.VIEWS instead of per-view
       GET_DDL loop
   - Verify: view-phase timing is a single query, not N queries
-- [ ] SQL rewrites: COST_007 and COST_013 use CTE + LEFT JOIN instead of
+- [x] SQL rewrites: COST_007 and COST_013 use CTE + LEFT JOIN instead of
       correlated NOT EXISTS with FLATTEN
   - Verify: no `NOT EXISTS ... LATERAL FLATTEN` pattern in rule source
-- [ ] Default workers changed from 1 to 4
+- [x] Default workers changed from 1 to 4
   - Verify: `snowfort audit scan --help` shows `default=4`
-- [ ] Nothing breaks: `make check` passes (lint + mypy + tests + coverage >= 80%)
+- [x] Nothing breaks: `make check` passes (lint + mypy + tests + coverage >= 80%)
   - Verify: `make check` exits 0
 
 ## Scope Boundaries
@@ -59,3 +60,15 @@ Target: 3-4 sessions
   WAREHOUSES etc. needs ScanContext. Biggest refactor, 15+ files.
 - Parallel workers + shared cache must be thread-safe — ScanContext must
   be immutable/frozen
+
+## Additional Work Shipped
+
+Beyond the 7 acceptance criteria, this work included:
+
+- Refactored OPS_001, OPS_009, REL_001 to extract private helpers, reducing
+  McCabe complexity below ruff's C901 limit of 11
+- Fixed mypy override compatibility for all 90 rules: base class Rule.check_online
+  now uses `cursor` (non-prefixed) so subclasses are LSP-compatible
+- Added `**_kw` to all scan_context methods for full kwargs pass-through
+- ScanContext is frozen-by-convention (dataclass, all fields set at construction)
+  to support thread-safe parallel worker execution
