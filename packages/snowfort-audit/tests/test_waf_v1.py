@@ -123,14 +123,16 @@ def test_sec_008_zombie_roles():
     #   6. SHOW GRANTS OF ROLE R_OK -> ['user']
     #   7. SHOW GRANTS TO ROLE R_OK -> ['usage']
 
+    # Batch approach: 1. SHOW ROLES, 2. GRANTS_TO_ROLES(granted_on='ROLE'),
+    # 3. GRANTS_TO_USERS, 4. GRANTS_TO_ROLES(grantee)
+    # R_ORPHAN: not granted to anyone -> Orphan; appears in grantee set -> not Empty
+    # R_EMPTY:  granted to someone   -> not Orphan; not in grantee set  -> Empty
+    # R_OK:     granted to someone   -> not Orphan; in grantee set      -> not Empty
     mock_cursor.fetchall.side_effect = [
-        [(None, "R_ORPHAN"), (None, "R_EMPTY"), (None, "R_OK")],  # SHOW ROLES (row[1] is name)
-        [],  # R_ORPHAN Grants OF (Empty -> Orphan)
-        [("priv",)],  # R_ORPHAN Grants TO (Has privs)
-        [("user",)],  # R_EMPTY Grants OF (Has user)
-        [],  # R_EMPTY Grants TO (Empty -> Empty)
-        [("user",)],  # R_OK Grants OF
-        [("priv",)],  # R_OK Grants TO
+        [(None, "R_ORPHAN"), (None, "R_EMPTY"), (None, "R_OK")],  # SHOW ROLES
+        [("R_EMPTY",), ("R_OK",)],  # GRANTS_TO_ROLES granted_on='ROLE' -> non-orphan set
+        [],  # GRANTS_TO_USERS -> no additions
+        [("R_ORPHAN",), ("R_OK",)],  # GRANTS_TO_ROLES grantee -> has-grants set
     ]
 
     violations = rule.check_online(mock_cursor)

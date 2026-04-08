@@ -332,12 +332,13 @@ class TestReliabilityRules:
         rule = PerWarehouseStatementTimeoutCheck()
         mock_cursor = MagicMock()
         mock_cursor.description = [("name",)]
-        mock_cursor.fetchall.return_value = [("WH_DEFAULT",), ("WH_GOOD",)]
-        # WH_DEFAULT has 172800 (default), WH_GOOD has 900
-        mock_cursor.fetchone.side_effect = [
-            ("key", "172800", "default", "level", "desc"),
-            ("key", "900", "default", "level", "desc"),
+        # fetchall: SHOW WAREHOUSES, then OBJECT_PARAMETERS overrides
+        mock_cursor.fetchall.side_effect = [
+            [("WH_DEFAULT",), ("WH_GOOD",)],  # SHOW WAREHOUSES
+            [("WH_GOOD", "900")],  # OBJECT_PARAMETERS: WH_GOOD has 900s override
         ]
+        # fetchone: SHOW PARAMETERS IN ACCOUNT -> account default = 172800
+        mock_cursor.fetchone.return_value = ("STATEMENT_TIMEOUT_IN_SECONDS", "172800", "172800", "SYSTEM", "")
         violations = rule.check_online(mock_cursor)
         assert len(violations) == 1
         assert violations[0].resource_name == "WH_DEFAULT"
@@ -509,40 +510,16 @@ class TestSecurityRules:
         rule = ZombieRoleCheck()
         mock_cursor = MagicMock()
 
-        # 1. Show Roles
-        # 2. Show Grants OF role (Orphan check)
-        # 3. Show Grants TO role (Empty check)
-
-        # We need a robust side_effect for the loop
-        # Flow:
-        # SQL: SHOW ROLES -> returns [ROLE_ORPHAN, ROLE_EMPTY, ROLE_GOOD]
-        # SQL: SHOW GRANTS OF ROLE ROLE_ORPHAN -> [] (Fail Orphan)
-        # SQL: SHOW GRANTS OF ROLE ROLE_EMPTY  -> [GRANT] (Pass Orphan)
-        # SQL: SHOW GRANTS OF ROLE ROLE_GOOD   -> [GRANT] (Pass Orphan)
-        # SQL: SHOW GRANTS TO ROLE ROLE_ORPHAN -> [GRANT] (Pass Empty) -- Wait, Orphan check runs first.
-        # Actually logic runs both checks for each role.
-
-        # side_effect sequence:
-        # 1. SHOW ROLES
-        # Loop ROLE_ORPHAN:
-        #   2. SHOW GRANTS OF ROLE ROLE_ORPHAN
-        #   3. SHOW GRANTS TO ROLE ROLE_ORPHAN
-        # Loop ROLE_EMPTY:
-        #   4. SHOW GRANTS OF ROLE ROLE_EMPTY
-        #   5. SHOW GRANTS TO ROLE ROLE_EMPTY
-        # ...
-
+        # Batch approach: 1. SHOW ROLES, 2. GRANTS_TO_ROLES (granted_on='ROLE'),
+        # 3. GRANTS_TO_USERS, 4. GRANTS_TO_ROLES (grantee set)
+        # ROLE_ORPHAN: not in non_orphan_roles -> Orphan; IS in roles_with_grants -> not Empty
+        # ROLE_EMPTY:  IS in non_orphan_roles  -> not Orphan; not in roles_with_grants -> Empty
+        # ROLE_GOOD:   IS in non_orphan_roles  -> not Orphan; IS in roles_with_grants -> not Empty
         mock_cursor.fetchall.side_effect = [
             [("row", "ROLE_ORPHAN"), ("row", "ROLE_EMPTY"), ("row", "ROLE_GOOD")],  # SHOW ROLES
-            # ROLE_ORPHAN
-            [],  # GRANTS OF (Orphan -> Yes)
-            [("grant",)],  # GRANTS TO (Empty -> No)
-            # ROLE_EMPTY
-            [("grant",)],  # GRANTS OF (Orphan -> No)
-            [],  # GRANTS TO (Empty -> Yes)
-            # ROLE_GOOD
-            [("grant",)],  # GRANTS OF
-            [("grant",)],  # GRANTS TO
+            [("ROLE_EMPTY",), ("ROLE_GOOD",)],  # GRANTS_TO_ROLES granted_on='ROLE' -> non-orphan
+            [],  # GRANTS_TO_USERS -> no additions
+            [("ROLE_ORPHAN",), ("ROLE_GOOD",)],  # GRANTS_TO_ROLES grantee_name -> has grants
         ]
 
         violations = rule.check_online(mock_cursor)

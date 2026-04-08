@@ -535,11 +535,27 @@ class ZombieRoleCheck(Rule):
                 cursor.execute("SHOW ROLES")
                 roles = [row[1] for row in cursor.fetchall() if row[1] not in system_roles]
 
+            # Batch: replace 2N SHOW GRANTS calls with 3 ACCOUNT_USAGE queries
+            # Orphan set: roles that are granted TO a role or user
+            cursor.execute(
+                "SELECT DISTINCT NAME FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_ROLES "
+                "WHERE GRANTED_ON = 'ROLE' AND DELETED_ON IS NULL"
+            )
+            granted_to_role: set[str] = {str(r[0]).upper() for r in cursor.fetchall()}
+
+            cursor.execute("SELECT DISTINCT ROLE FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_USERS WHERE DELETED_ON IS NULL")
+            granted_to_user: set[str] = {str(r[0]).upper() for r in cursor.fetchall()}
+            non_orphan_roles = granted_to_role | granted_to_user
+
+            # Empty set: roles that have at least one grant (privilege or role)
+            cursor.execute(
+                "SELECT DISTINCT GRANTEE_NAME FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_ROLES WHERE DELETED_ON IS NULL"
+            )
+            roles_with_grants: set[str] = {str(r[0]).upper() for r in cursor.fetchall()}
+
             for role in roles:
-                # 1. Orphan Check: Is this role granted TO anyone?
-                cursor.execute(f"SHOW GRANTS OF ROLE {role}")
-                grantees = cursor.fetchall()
-                if not grantees:
+                role_upper = role.upper()
+                if role_upper not in non_orphan_roles:
                     violations.append(
                         Violation(
                             self.id,
@@ -548,13 +564,7 @@ class ZombieRoleCheck(Rule):
                             self.severity,
                         )
                     )
-
-                # 2. Empty Check: Does this role HAVE any privileges?
-                cursor.execute(f"SHOW GRANTS TO ROLE {role}")
-                grants = cursor.fetchall()
-                if not grants:
-                    # Check if it inherits other roles? SHOW GRANTS TO ROLE shows privilege grants AND role grants.
-                    # So if empty, it truly has nothing.
+                if role_upper not in roles_with_grants:
                     violations.append(
                         Violation(
                             self.id,

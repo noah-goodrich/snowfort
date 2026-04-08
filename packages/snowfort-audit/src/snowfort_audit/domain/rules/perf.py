@@ -50,6 +50,7 @@ class ClusterKeyValidationCheck(Rule):
         try:
             if scan_context is not None and scan_context.tables is not None:
                 # cols: TABLE_CATALOG=0, TABLE_SCHEMA=1, TABLE_NAME=2, TABLE_TYPE=3, BYTES=4, CLUSTERING_KEY=8
+                # Cap at 20: each table fires SYSTEM$CLUSTERING_DEPTH — bound the N+1
                 tables = [
                     (r[0], r[1], r[2], r[8])
                     for r in scan_context.tables
@@ -57,7 +58,7 @@ class ClusterKeyValidationCheck(Rule):
                     and r[4] is not None
                     and r[4] > ONE_TB_BYTES
                     and not is_excluded_db_or_warehouse_name(r[0])
-                ]
+                ][:20]
             else:
                 query = (
                     f"""
@@ -68,6 +69,10 @@ class ClusterKeyValidationCheck(Rule):
                 AND BYTES > {ONE_TB_BYTES}
                 """
                     + SQL_EXCLUDE_SYSTEM_AND_SNOWFORT
+                    + """
+                ORDER BY BYTES DESC
+                LIMIT 20
+                """
                 )
                 cursor.execute(query)
                 tables = cursor.fetchall()

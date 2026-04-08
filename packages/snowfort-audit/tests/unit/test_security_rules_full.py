@@ -143,7 +143,9 @@ def test_zombie_user_ok():
 
 def test_zombie_role():
     c = MagicMock()
-    c.fetchall.side_effect = [[("cr", "CUSTOM")], [], []]
+    # SHOW ROLES -> CUSTOM; GRANTS_TO_ROLES(granted_on='ROLE') -> []; GRANTS_TO_USERS -> [];
+    # GRANTS_TO_ROLES(grantee) -> [] => CUSTOM is Orphan + Empty = 2 violations
+    c.fetchall.side_effect = [[("cr", "CUSTOM")], [], [], []]
     assert len(ZombieRoleCheck().check_online(c)) == 2
 
 

@@ -465,20 +465,38 @@ class PerWarehouseStatementTimeoutCheck(Rule):
                 warehouses = [wh for wh in cursor.fetchall() if not is_excluded_db_or_warehouse_name(wh[0])]
                 cols = {col[0].lower(): i for i, col in enumerate(cursor.description)}
             name_idx = cols["name"]
+
+            # Batch: account-level default (1 query) + warehouse overrides via OBJECT_PARAMETERS (1 query)
+            cursor.execute("SHOW PARAMETERS LIKE 'STATEMENT_TIMEOUT_IN_SECONDS' IN ACCOUNT")
+            acct_row = cursor.fetchone()
+            try:
+                account_default = (
+                    int(cast(str | int, acct_row[1]))
+                    if acct_row and acct_row[1] not in (None, "", "null")
+                    else self.DEFAULT_TIMEOUT_SECONDS
+                )
+            except (TypeError, ValueError):
+                account_default = self.DEFAULT_TIMEOUT_SECONDS
+
+            wh_overrides: dict[str, int] = {}
+            try:
+                cursor.execute(
+                    "SELECT OBJECT_NAME, VALUE "
+                    "FROM SNOWFLAKE.ACCOUNT_USAGE.OBJECT_PARAMETERS "
+                    "WHERE PARAMETER_NAME = 'STATEMENT_TIMEOUT_IN_SECONDS' "
+                    "AND OBJECT_TYPE = 'WAREHOUSE'"
+                )
+                for r in cursor.fetchall():
+                    try:
+                        wh_overrides[str(r[0]).upper()] = int(r[1])
+                    except (TypeError, ValueError):
+                        pass
+            except Exception:
+                pass  # OBJECT_PARAMETERS unavailable; fall back to account default for all
+
             for wh in warehouses:
                 wh_name = wh[name_idx]
-                cursor.execute(f"SHOW PARAMETERS LIKE 'STATEMENT_TIMEOUT_IN_SECONDS' IN WAREHOUSE {wh_name}")
-                row = cursor.fetchone()
-                if not row:
-                    continue
-                # key, value, default, level, description
-                val = row[1] if len(row) > 1 else None
-                try:
-                    timeout_sec = (
-                        int(cast(str | int, val)) if val not in (None, "", "null") else self.DEFAULT_TIMEOUT_SECONDS
-                    )
-                except (TypeError, ValueError):
-                    timeout_sec = self.DEFAULT_TIMEOUT_SECONDS
+                timeout_sec = wh_overrides.get(wh_name.upper(), account_default)
                 if timeout_sec >= self.DEFAULT_TIMEOUT_SECONDS or timeout_sec <= 0:
                     violations.append(
                         self.violation(
@@ -514,16 +532,20 @@ class StaleTableDetectionCheck(Rule):
     ) -> list[Violation]:
         query = (
             f"""
-        SELECT m.TABLE_CATALOG, m.TABLE_SCHEMA, m.TABLE_NAME, m.ACTIVE_BYTES
-        FROM SNOWFLAKE.ACCOUNT_USAGE.TABLE_STORAGE_METRICS m
-        WHERE m.TABLE_DROPPED IS NULL AND m.ACTIVE_BYTES > {self.MIN_ACTIVE_BYTES}
-        AND NOT EXISTS (
-            SELECT 1 FROM SNOWFLAKE.ACCOUNT_USAGE.ACCESS_HISTORY h,
+        WITH recent_table_accesses AS (
+            SELECT DISTINCT f.value:objectName::string AS object_name
+            FROM SNOWFLAKE.ACCOUNT_USAGE.ACCESS_HISTORY h,
             LATERAL FLATTEN(input => h.direct_objects_accessed) f
             WHERE h.query_start_time >= DATEADD(day, -{self.STALE_DAYS}, CURRENT_TIMESTAMP())
             AND UPPER(COALESCE(f.value:objectDomain::string, '')) = 'TABLE'
-            AND (m.TABLE_CATALOG || '.' || m.TABLE_SCHEMA || '.' || m.TABLE_NAME) = f.value:objectName::string
         )
+        SELECT m.TABLE_CATALOG, m.TABLE_SCHEMA, m.TABLE_NAME, m.ACTIVE_BYTES
+        FROM SNOWFLAKE.ACCOUNT_USAGE.TABLE_STORAGE_METRICS m
+        LEFT JOIN recent_table_accesses ra
+            ON (m.TABLE_CATALOG || '.' || m.TABLE_SCHEMA || '.' || m.TABLE_NAME) = ra.object_name
+        WHERE m.TABLE_DROPPED IS NULL
+        AND m.ACTIVE_BYTES > {self.MIN_ACTIVE_BYTES}
+        AND ra.object_name IS NULL
         """
             + SQL_EXCLUDE_SYSTEM_AND_SNOWFORT.replace("TABLE_CATALOG", "m.TABLE_CATALOG")
             + """
@@ -612,15 +634,18 @@ class UnusedMaterializedViewCheck(Rule):
         # MVs that were refreshed in last 30 days but not in direct_objects_accessed in last 30 days
         query = (
             """
-        SELECT DISTINCT r.DATABASE_NAME, r.SCHEMA_NAME, r.TABLE_NAME
-        FROM SNOWFLAKE.ACCOUNT_USAGE.MATERIALIZED_VIEW_REFRESH_HISTORY r
-        WHERE r.END_TIME >= DATEADD(day, -30, CURRENT_TIMESTAMP())
-        AND NOT EXISTS (
-            SELECT 1 FROM SNOWFLAKE.ACCOUNT_USAGE.ACCESS_HISTORY h,
+        WITH recent_mv_accesses AS (
+            SELECT DISTINCT f.value:objectName::string AS object_name
+            FROM SNOWFLAKE.ACCOUNT_USAGE.ACCESS_HISTORY h,
             LATERAL FLATTEN(input => h.direct_objects_accessed) f
             WHERE h.query_start_time >= DATEADD(day, -30, CURRENT_TIMESTAMP())
-            AND (r.DATABASE_NAME || '.' || r.SCHEMA_NAME || '.' || r.TABLE_NAME) = f.value:objectName::string
         )
+        SELECT DISTINCT r.DATABASE_NAME, r.SCHEMA_NAME, r.TABLE_NAME
+        FROM SNOWFLAKE.ACCOUNT_USAGE.MATERIALIZED_VIEW_REFRESH_HISTORY r
+        LEFT JOIN recent_mv_accesses ra
+            ON (r.DATABASE_NAME || '.' || r.SCHEMA_NAME || '.' || r.TABLE_NAME) = ra.object_name
+        WHERE r.END_TIME >= DATEADD(day, -30, CURRENT_TIMESTAMP())
+        AND ra.object_name IS NULL
         """
             + SQL_EXCLUDE_SYSTEM_AND_SNOWFORT_DB.replace("DATABASE_NAME", "r.DATABASE_NAME")
             + """
