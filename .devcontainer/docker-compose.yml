@@ -20,7 +20,8 @@ services:
       - ~/.config/nvim:/home/dev/.config/nvim:cached              # neovim config
       - ~/.ssh:/home/dev/.ssh:cached                               # SSH keys
       - ~/.gitconfig:/home/dev/.gitconfig:cached                  # git identity & config
-      - /run/host-services/ssh-auth.sock:/run/host-services/ssh-auth.sock  # SSH agent forwarding
+      - /run/host-services/ssh-auth.sock:/run/host-services/ssh-auth.sock  # SSH agent forwarding (Docker Desktop)
+      - ~/.ssh/agent:/home/dev/.ssh/agent:ro  # Host SSH agent socket directory
       - ~/.claude:/home/dev/.claude:cached                             # Claude Code hooks & memory
       - ~/.config/borg:/home/dev/.config/borg:cached                  # Borg registry (for hooks)
       - ~/.config/dotfiles/claude/plugins:/home/dev/.config/dotfiles/claude/plugins:cached  # Plugin marketplace source
