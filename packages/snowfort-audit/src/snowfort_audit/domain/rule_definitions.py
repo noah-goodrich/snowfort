@@ -142,7 +142,9 @@ class Rule:
         """Offline check against a dict definition."""
         return []
 
-    def check_online(self, _cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         """Online check against live Snowflake connection."""
         return []
 

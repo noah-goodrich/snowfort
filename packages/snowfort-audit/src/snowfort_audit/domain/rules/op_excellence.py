@@ -7,6 +7,7 @@ from snowfort_audit.domain.rule_definitions import Rule, Severity, Violation, is
 
 if TYPE_CHECKING:
     from snowfort_audit._vendor.protocols import SnowflakeCursorProtocol
+    from snowfort_audit.domain.scan_context import ScanContext
 
 # Removed Infrastructure import
 
@@ -28,7 +29,14 @@ class ResourceMonitorCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self,
+        cursor: SnowflakeCursorProtocol,
+        _resource_name: str | None = None,
+        *,
+        scan_context: ScanContext | None = None,
+        **_kw,
+    ) -> list[Violation]:
         violations = []
         try:
             # Check for any resource monitors
@@ -46,13 +54,20 @@ class ResourceMonitorCheck(Rule):
                 )
 
             # Check warehouses without monitors (skip system/tool warehouses)
-            cursor.execute("SHOW WAREHOUSES")
-            warehouses = cursor.fetchall()
+            if scan_context is not None and scan_context.warehouses is not None:
+                warehouses = list(scan_context.warehouses)
+                rm_idx = scan_context.warehouses_cols.get("resource_monitor", 16)
+            else:
+                cursor.execute("SHOW WAREHOUSES")
+                wh_desc = cursor.description or []
+                wh_cols = {col[0].lower(): i for i, col in enumerate(wh_desc)}
+                warehouses = cursor.fetchall()
+                rm_idx = wh_cols.get("resource_monitor", 16)
             for wh in warehouses:
                 wh_name = wh[0]
                 if is_excluded_db_or_warehouse_name(wh_name):
                     continue
-                wh_monitor = wh[16]  # 'resource_monitor' column
+                wh_monitor = wh[rm_idx]  # 'resource_monitor' column
                 if wh_monitor == "null" or not wh_monitor:
                     is_prod = "PROD" in wh_name.upper() or "PRODUCTION" in wh_name.upper()
                     is_sandbox = "SANDBOX" in wh_name.upper() or "SB" in wh_name.upper()
@@ -92,16 +107,32 @@ class ObjectCommentCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self,
+        cursor: SnowflakeCursorProtocol,
+        _resource_name: str | None = None,
+        *,
+        scan_context: ScanContext | None = None,
+        **_kw,
+    ) -> list[Violation]:
         violations = []
         try:
-            cursor.execute("SHOW DATABASES")
-            dbs = cursor.fetchall()
+            if scan_context is not None and scan_context.databases is not None:
+                dbs = list(scan_context.databases)
+                name_idx = scan_context.databases_cols.get("name", 1)
+                comment_idx = scan_context.databases_cols.get("comment", 9)
+            else:
+                cursor.execute("SHOW DATABASES")
+                db_desc = cursor.description or []
+                db_cols = {col[0].lower(): i for i, col in enumerate(db_desc)}
+                dbs = cursor.fetchall()
+                name_idx = db_cols.get("name", 1)
+                comment_idx = db_cols.get("comment", 9)
             for db in dbs:
-                db_name = db[1]
+                db_name = db[name_idx]
                 if is_excluded_db_or_warehouse_name(db_name):
                     continue
-                comment = db[9]
+                comment = db[comment_idx]
                 if not comment or comment == "":
                     msg = f"Database '{db_name}' is missing a comment/description."
                     violations.append(
@@ -130,82 +161,88 @@ class MandatoryTaggingCheck(Rule):
         )
         self.recommended_tags = {"COST_CENTER", "OWNER", "ENVIRONMENT"}
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self,
+        cursor: SnowflakeCursorProtocol,
+        _resource_name: str | None = None,
+        *,
+        scan_context: ScanContext | None = None,
+        **_kw,
+    ) -> list[Violation]:
         violations = []
-        # Strategy: Get all Warehouses and Databases.
-        # Then bulk query ACCOUNT_USAGE.TAG_REFERENCES.
-        # Note: Latency of 1-2 hours.
         try:
-            # 1. Get List of Resources (exclude system/tool DBs and warehouses)
-            cursor.execute("SHOW WAREHOUSES")
-            warehouses = {row[0] for row in cursor.fetchall() if not is_excluded_db_or_warehouse_name(row[0])}
-
-            cursor.execute("SHOW DATABASES")
-            databases = {row[1] for row in cursor.fetchall() if not is_excluded_db_or_warehouse_name(row[1])}
-
-            # 2. Get Tag References
-            # We fetch ALL tags for WH and DB domain
-            query = """
-            SELECT DOMAIN, OBJECT_NAME, TAG_NAME
-            FROM SNOWFLAKE.ACCOUNT_USAGE.TAG_REFERENCES
-            WHERE DOMAIN IN ('WAREHOUSE', 'DATABASE')
-            AND OBJECT_DELETED IS NULL
-            """
-            cursor.execute(query)
-
-            # Map: (Domain, Name) -> Set of Tags
-            tagged_objects: dict[tuple[str, str], set[str]] = {}
-            for row in cursor.fetchall():
-                key = (row[0].upper(), row[1].upper())  # (WAREHOUSE, MY_WH)
-                tag = row[2].upper()
-                if key not in tagged_objects:
-                    tagged_objects[key] = set()
-                tagged_objects[key].add(tag)
-
-            # 3. Validate
-
-            def _validate(domain: str, name: str):
-                existing_tags = tagged_objects.get((domain, name), set())
-
-                # ERROR Check: 0 tags
-                if not existing_tags:
-                    violations.append(
-                        Violation(
-                            self.id,
-                            f"{domain.title()} '{name}'",
-                            "Object has ZERO tags. Governance failure.",
-                            Severity.CRITICAL,  # High/Critical for 0 tags
-                            remediation_key=self.remediation_key,
-                        )
-                    )
-                    return
-
-                # WARNING Check: Missing recommended standard tags
-                missing = self.recommended_tags - existing_tags
-                if missing:
-                    violations.append(
-                        Violation(
-                            self.id,
-                            f"{domain.title()} '{name}'",
-                            f"Missing recommended WAF tags: {', '.join(missing)}",
-                            Severity.MEDIUM,
-                            remediation_key=self.remediation_key,
-                        )
-                    )
-
-            # Check Warehouses
+            warehouses = self._resolve_warehouse_names(cursor, scan_context)
+            databases = self._resolve_database_names(cursor, scan_context)
+            tagged_objects = self._resolve_tag_map(cursor, scan_context)
             for wh in warehouses:
-                _validate("WAREHOUSE", wh)
-
-            # Check Databases
+                violations.extend(self._validate_tags("WAREHOUSE", wh, tagged_objects))
             for db in databases:
-                _validate("DATABASE", db)
-
+                violations.extend(self._validate_tags("DATABASE", db, tagged_objects))
         except Exception:
-            # If ACCOUNT_USAGE is not accessible or other error
             pass
-
         return violations
+
+    def _resolve_warehouse_names(self, cursor: SnowflakeCursorProtocol, scan_context: ScanContext | None) -> set[str]:
+        if scan_context is not None and scan_context.warehouses is not None:
+            return {wh[0] for wh in scan_context.warehouses if not is_excluded_db_or_warehouse_name(wh[0])}
+        cursor.execute("SHOW WAREHOUSES")
+        return {row[0] for row in cursor.fetchall() if not is_excluded_db_or_warehouse_name(row[0])}
+
+    def _resolve_database_names(self, cursor: SnowflakeCursorProtocol, scan_context: ScanContext | None) -> set[str]:
+        if scan_context is not None and scan_context.databases is not None:
+            idx = scan_context.databases_cols.get("name", 1)
+            return {db[idx] for db in scan_context.databases if not is_excluded_db_or_warehouse_name(db[idx])}
+        cursor.execute("SHOW DATABASES")
+        return {row[1] for row in cursor.fetchall() if not is_excluded_db_or_warehouse_name(row[1])}
+
+    def _resolve_tag_map(
+        self, cursor: SnowflakeCursorProtocol, scan_context: ScanContext | None
+    ) -> dict[tuple[str, str], set[str]]:
+        tagged: dict[tuple[str, str], set[str]] = {}
+        if scan_context is not None and scan_context.tag_refs is not None:
+            for row in scan_context.tag_refs:
+                domain = str(row[0]).upper()
+                if domain not in ("WAREHOUSE", "DATABASE"):
+                    continue
+                key: tuple[str, str] = (domain, str(row[1]).upper())
+                tagged.setdefault(key, set()).add(str(row[2]).upper())
+        else:
+            cursor.execute(
+                "SELECT DOMAIN, OBJECT_NAME, TAG_NAME"
+                " FROM SNOWFLAKE.ACCOUNT_USAGE.TAG_REFERENCES"
+                " WHERE DOMAIN IN ('WAREHOUSE', 'DATABASE') AND OBJECT_DELETED IS NULL"
+            )
+            for row in cursor.fetchall():
+                key = (row[0].upper(), row[1].upper())
+                tagged.setdefault(key, set()).add(row[2].upper())
+        return tagged
+
+    def _validate_tags(
+        self, domain: str, name: str, tagged_objects: dict[tuple[str, str], set[str]]
+    ) -> list[Violation]:
+        existing_tags = tagged_objects.get((domain, name.upper()), set())
+        if not existing_tags:
+            return [
+                Violation(
+                    self.id,
+                    f"{domain.title()} '{name}'",
+                    "Object has ZERO tags. Governance failure.",
+                    Severity.CRITICAL,
+                    remediation_key=self.remediation_key,
+                )
+            ]
+        missing = self.recommended_tags - existing_tags
+        if missing:
+            return [
+                Violation(
+                    self.id,
+                    f"{domain.title()} '{name}'",
+                    f"Missing recommended WAF tags: {', '.join(missing)}",
+                    Severity.MEDIUM,
+                    remediation_key=self.remediation_key,
+                )
+            ]
+        return []
 
 
 class AlertConfigurationCheck(Rule):
@@ -222,7 +259,9 @@ class AlertConfigurationCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         try:
             cursor.execute("SHOW ALERTS")
             alerts = cursor.fetchall()
@@ -264,7 +303,9 @@ class NotificationIntegrationCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         try:
             cursor.execute("SHOW NOTIFICATION INTEGRATIONS")
             integrations = cursor.fetchall()
@@ -296,10 +337,25 @@ class ObservabilityInfrastructureCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self,
+        cursor: SnowflakeCursorProtocol,
+        _resource_name: str | None = None,
+        *,
+        scan_context: ScanContext | None = None,
+        **_kw,
+    ) -> list[Violation]:
         try:
-            cursor.execute("SHOW DATABASES")
-            dbs = [row[1].upper() for row in cursor.fetchall() if not is_excluded_db_or_warehouse_name(row[1])]
+            if scan_context is not None and scan_context.databases is not None:
+                name_idx = scan_context.databases_cols.get("name", 1)
+                dbs = [
+                    db[name_idx].upper()
+                    for db in scan_context.databases
+                    if not is_excluded_db_or_warehouse_name(db[name_idx])
+                ]
+            else:
+                cursor.execute("SHOW DATABASES")
+                dbs = [row[1].upper() for row in cursor.fetchall() if not is_excluded_db_or_warehouse_name(row[1])]
             observability_like = [d for d in dbs if "OBSERVABILITY" in d or "MONITORING" in d or "METRICS" in d]
             if not observability_like:
                 return [
@@ -330,25 +386,18 @@ class IaCDriftReadinessCheck(Rule):
         )
         self.managed_by_tag_names = {"MANAGED_BY", "MANAGEMENT", "SOURCE", "TERRAFORM"}
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self,
+        cursor: SnowflakeCursorProtocol,
+        _resource_name: str | None = None,
+        *,
+        scan_context: ScanContext | None = None,
+        **_kw,
+    ) -> list[Violation]:
         try:
-            query = """
-            SELECT DOMAIN, OBJECT_NAME, TAG_NAME
-            FROM SNOWFLAKE.ACCOUNT_USAGE.TAG_REFERENCES
-            WHERE DOMAIN IN ('WAREHOUSE', 'DATABASE')
-            AND OBJECT_DELETED IS NULL
-            """
-            cursor.execute(query)
-            tagged: set[tuple[str, str]] = set()
-            for row in cursor.fetchall():
-                tag_name = (row[2] or "").upper()
-                if tag_name in self.managed_by_tag_names:
-                    tagged.add((row[0], row[1]))
-            cursor.execute("SHOW WAREHOUSES")
-            wh_count = sum(1 for r in cursor.fetchall() if not is_excluded_db_or_warehouse_name(r[0]))
-            cursor.execute("SHOW DATABASES")
-            db_rows = cursor.fetchall()
-            db_count = sum(1 for r in db_rows if not is_excluded_db_or_warehouse_name(r[1]))
+            tagged = self._fetch_managed_tags(cursor, scan_context)
+            wh_count = self._count_warehouses(cursor, scan_context)
+            db_count = self._count_databases(cursor, scan_context)
             wh_tagged = len({obj for (dom, obj) in tagged if dom == "WAREHOUSE"})
             db_tagged = len({obj for (dom, obj) in tagged if dom == "DATABASE"})
             if wh_count > 0 and wh_tagged == 0:
@@ -369,6 +418,41 @@ class IaCDriftReadinessCheck(Rule):
             return []
         return []
 
+    def _fetch_managed_tags(
+        self, cursor: SnowflakeCursorProtocol, scan_context: ScanContext | None
+    ) -> set[tuple[str, str]]:
+        tagged: set[tuple[str, str]] = set()
+        if scan_context is not None and scan_context.tag_refs is not None:
+            for row in scan_context.tag_refs:
+                domain = str(row[0]).upper()
+                if domain not in ("WAREHOUSE", "DATABASE"):
+                    continue
+                if (row[2] or "").upper() in self.managed_by_tag_names:
+                    tagged.add((domain, str(row[1])))
+        else:
+            cursor.execute(
+                "SELECT DOMAIN, OBJECT_NAME, TAG_NAME"
+                " FROM SNOWFLAKE.ACCOUNT_USAGE.TAG_REFERENCES"
+                " WHERE DOMAIN IN ('WAREHOUSE', 'DATABASE') AND OBJECT_DELETED IS NULL"
+            )
+            for row in cursor.fetchall():
+                if (row[2] or "").upper() in self.managed_by_tag_names:
+                    tagged.add((row[0], row[1]))
+        return tagged
+
+    def _count_warehouses(self, cursor: SnowflakeCursorProtocol, scan_context: ScanContext | None) -> int:
+        if scan_context is not None and scan_context.warehouses is not None:
+            return sum(1 for r in scan_context.warehouses if not is_excluded_db_or_warehouse_name(r[0]))
+        cursor.execute("SHOW WAREHOUSES")
+        return sum(1 for r in cursor.fetchall() if not is_excluded_db_or_warehouse_name(r[0]))
+
+    def _count_databases(self, cursor: SnowflakeCursorProtocol, scan_context: ScanContext | None) -> int:
+        if scan_context is not None and scan_context.databases is not None:
+            idx = scan_context.databases_cols.get("name", 1)
+            return sum(1 for r in scan_context.databases if not is_excluded_db_or_warehouse_name(r[idx]))
+        cursor.execute("SHOW DATABASES")
+        return sum(1 for r in cursor.fetchall() if not is_excluded_db_or_warehouse_name(r[1]))
+
 
 class EventTableConfigurationCheck(Rule):
     """OPS_010: Check whether the account has an event table configured (WAF: centralized monitoring)."""
@@ -387,7 +471,9 @@ class EventTableConfigurationCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         try:
             cursor.execute("SHOW EVENT TABLES IN ACCOUNT")
             rows = cursor.fetchall()
@@ -424,7 +510,9 @@ class AlertExecutionReliabilityCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         lookback = self.LOOKBACK_DAYS
         query = f"""
         SELECT NAME, DATABASE_NAME, SCHEMA_NAME,
@@ -473,7 +561,9 @@ class DataMetricFunctionsCoverageCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         try:
             cursor.execute("""
                 SELECT COUNT(*) AS cnt

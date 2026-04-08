@@ -1,6 +1,6 @@
 """Tests for OnlineScanUseCase."""
 
-from unittest.mock import MagicMock
+from unittest.mock import ANY, MagicMock
 
 import pytest
 
@@ -174,9 +174,9 @@ def test_online_scan_execute_view_fallback_uses_check_online(telemetry):
     use_case = OnlineScanUseCase(mock_gateway, [rule], telemetry)
     use_case.execute()
 
-    # 1 call in account phase (no view name) + 2 calls in view phase (one per view)
+    # 1 call in account phase (with scan_context) + 2 calls in view phase (one per view, no scan_context)
     assert rule.check_online.call_count == 3
-    rule.check_online.assert_any_call(mock_cursor)
+    rule.check_online.assert_any_call(mock_cursor, scan_context=ANY)
     rule.check_online.assert_any_call(mock_cursor, "DB1.SCHEMA1.V1")
     rule.check_online.assert_any_call(mock_cursor, "DB2.SCHEMA2.V2")
 

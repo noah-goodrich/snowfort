@@ -7,6 +7,7 @@ from typing import Any
 
 from snowfort_audit._vendor.protocols import SnowflakeCursorProtocol, SnowflakeQueryProtocol
 from snowfort_audit.domain.protocols import TelemetryPort
+from snowfort_audit.domain.scan_context import ScanContext
 
 from ..domain.rule_definitions import (
     EXCLUDED_DATABASES_DEFAULT,
@@ -69,6 +70,7 @@ def _run_rules_chunk(
     rules_chunk: list[tuple[int, Rule]],
     worker_id: int,
     profile: bool = False,
+    scan_context: ScanContext | None = None,
 ) -> tuple[list[Violation], list[RuleTiming]]:
     """Run a subset of rules on a dedicated connection. Used by parallel scan."""
     out: list[Violation] = []
@@ -77,7 +79,7 @@ def _run_rules_chunk(
     for _idx, rule in rules_chunk:
         t0 = time.perf_counter()
         try:
-            found = rule.check_online(cursor)
+            found = rule.check_online(cursor, scan_context=scan_context)
             if found:
                 out.extend(found)
         except Exception:
@@ -134,12 +136,15 @@ class OnlineScanUseCase:
                 use_parallel = False
                 workers = 1
 
+        # Prefetch shared queries once; workers share the immutable ScanContext.
+        scan_context = self._prefetch(self.gateway.get_cursor())
+
         if use_parallel:
             self.telemetry.info(f"  Running {total} rules in parallel with {workers} workers.")
-            violations, timings = self._execute_parallel(workers, profile)
+            violations, timings = self._execute_parallel(workers, profile, scan_context)
         else:
             self.telemetry.info(f"  Running {total} rules (--workers N for parallel, --log-level DEBUG for detail).")
-            violations, timings = self._execute_sequential(profile)
+            violations, timings = self._execute_sequential(profile, scan_context)
 
         violations, view_timings = self._execute_view_phase(violations, include_snowfort_db, profile)
         self.profile_timings = timings + view_timings
@@ -316,7 +321,54 @@ class OnlineScanUseCase:
             timings = [(rid, rule_name_map[rid], elapsed) for rid, elapsed in rule_elapsed.items()]
         return violations, timings
 
-    def _execute_sequential(self, profile: bool = False) -> tuple[list[Violation], list[RuleTiming]]:
+    def _prefetch(self, cursor: SnowflakeCursorProtocol) -> ScanContext:
+        """Run shared queries once and return an immutable ScanContext for all rules."""
+        ctx = ScanContext()
+
+        def _show(label: str, sql: str, attr_rows: str, attr_cols: str) -> None:
+            try:
+                self.telemetry.debug(f"  [ScanContext] Prefetching {label}...")
+                cursor.execute(sql)
+                rows = tuple(cursor.fetchall())
+                cols = {col[0].lower(): i for i, col in enumerate(cursor.description or [])}
+                object.__setattr__(ctx, attr_rows, rows)
+                object.__setattr__(ctx, attr_cols, cols)
+            except Exception as e:
+                self.telemetry.debug(f"  [ScanContext] {label} unavailable: {e}")
+
+        def _query(label: str, sql: str, attr: str) -> None:
+            try:
+                self.telemetry.debug(f"  [ScanContext] Prefetching {label}...")
+                cursor.execute(sql)
+                object.__setattr__(ctx, attr, tuple(cursor.fetchall()))
+            except Exception as e:
+                self.telemetry.debug(f"  [ScanContext] {label} unavailable: {e}")
+
+        _show("SHOW WAREHOUSES", "SHOW WAREHOUSES", "warehouses", "warehouses_cols")
+        _show("SHOW USERS", "SHOW USERS", "users", "users_cols")
+        _show("SHOW DATABASES", "SHOW DATABASES", "databases", "databases_cols")
+        _show("SHOW ROLES", "SHOW ROLES", "roles", "roles_cols")
+        _query(
+            "TAG_REFERENCES",
+            "SELECT DOMAIN, OBJECT_NAME, TAG_NAME, TAG_VALUE, COLUMN_NAME"
+            " FROM SNOWFLAKE.ACCOUNT_USAGE.TAG_REFERENCES"
+            " WHERE OBJECT_DELETED IS NULL",
+            "tag_refs",
+        )
+        _query(
+            "ACCOUNT_USAGE.TABLES",
+            "SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE,"
+            " BYTES, ROW_COUNT, RETENTION_TIME, ENABLE_SCHEMA_EVOLUTION,"
+            " CLUSTERING_KEY, COMMENT"
+            " FROM SNOWFLAKE.ACCOUNT_USAGE.TABLES"
+            " WHERE DELETED IS NULL",
+            "tables",
+        )
+        return ctx
+
+    def _execute_sequential(
+        self, profile: bool = False, scan_context: ScanContext | None = None
+    ) -> tuple[list[Violation], list[RuleTiming]]:
         cur: SnowflakeCursorProtocol = self.gateway.get_cursor()
         violations: list[Violation] = []
         timings: list[RuleTiming] = []
@@ -325,7 +377,7 @@ class OnlineScanUseCase:
             self.telemetry.info(f"  [{i + 1}/{total}] {rule.id}: {rule.name}")
             t0 = time.perf_counter()
             try:
-                found = rule.check_online(cur)
+                found = rule.check_online(cur, scan_context=scan_context)
                 if found:
                     violations.extend(found)
                     self.telemetry.debug(f"      -> {len(found)} violation(s)")
@@ -336,7 +388,9 @@ class OnlineScanUseCase:
                 timings.append((rule.id, rule.name, time.perf_counter() - t0))
         return violations, timings
 
-    def _execute_parallel(self, workers: int, profile: bool = False) -> tuple[list[Violation], list[RuleTiming]]:
+    def _execute_parallel(
+        self, workers: int, profile: bool = False, scan_context: ScanContext | None = None
+    ) -> tuple[list[Violation], list[RuleTiming]]:
         total = len(self.rules)
         # Partition rules: worker i gets indices i, i+workers, i+2*workers, ...
         chunks: list[list[tuple[int, Rule]]] = [[] for _ in range(workers)]
@@ -348,7 +402,7 @@ class OnlineScanUseCase:
         n_done = 0
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {
-                executor.submit(_run_rules_chunk, self.gateway, chunks[w], w, profile): w
+                executor.submit(_run_rules_chunk, self.gateway, chunks[w], w, profile, scan_context): w
                 for w in range(workers)
                 if chunks[w]
             }

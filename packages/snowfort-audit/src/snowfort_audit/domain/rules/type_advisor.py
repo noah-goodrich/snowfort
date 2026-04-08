@@ -26,7 +26,9 @@ class Gen2UpgradeCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         # WAREHOUSE_METERING_HISTORY has no QUERY_TYPE; use QUERY_HISTORY for DML vs total ratio
         query = """
         SELECT
@@ -81,7 +83,9 @@ class SnowparkOptimizationCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         # Mock logic based on test expectation (Query counts)
         query = """
         SELECT

@@ -34,7 +34,9 @@ class SLOThrottlerCheck(Rule):
         self.evaluator = evaluator
         self.target_p95_ms = target_p95_ms
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         # Identify warehouses where p95 is very low (< 20% of SLO)
         query = """
         SELECT

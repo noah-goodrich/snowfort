@@ -15,6 +15,7 @@ from snowfort_audit.domain.rule_definitions import (
 
 if TYPE_CHECKING:
     from snowfort_audit._vendor.protocols import SnowflakeCursorProtocol
+    from snowfort_audit.domain.scan_context import ScanContext
 
 # Removed Infrastructure import
 
@@ -65,14 +66,25 @@ class AggressiveAutoSuspendCheck(Rule):
             ]
         return []
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self,
+        cursor: SnowflakeCursorProtocol,
+        _resource_name: str | None = None,
+        *,
+        scan_context: ScanContext | None = None,
+        **_kw,
+    ) -> list[Violation]:
         """Improved check with Tag Awareness for environment detection."""
         violations = []
         try:
-            env_tags = self._get_warehouse_env_tags(cursor)
-            cursor.execute("SHOW WAREHOUSES")
-            warehouses = [wh for wh in cursor.fetchall() if not is_excluded_db_or_warehouse_name(wh[0])]
-            cols = {col[0].lower(): i for i, col in enumerate(cursor.description)}
+            env_tags = self._get_warehouse_env_tags(cursor, scan_context)
+            if scan_context is not None and scan_context.warehouses is not None:
+                warehouses = [wh for wh in scan_context.warehouses if not is_excluded_db_or_warehouse_name(wh[0])]
+                cols = scan_context.warehouses_cols
+            else:
+                cursor.execute("SHOW WAREHOUSES")
+                warehouses = [wh for wh in cursor.fetchall() if not is_excluded_db_or_warehouse_name(wh[0])]
+                cols = {col[0].lower(): i for i, col in enumerate(cursor.description)}
 
             for wh in warehouses:
                 violations.extend(self._check_warehouse_suspension(wh, cols, env_tags))
@@ -80,20 +92,28 @@ class AggressiveAutoSuspendCheck(Rule):
             pass
         return violations
 
-    def _get_warehouse_env_tags(self, cursor: SnowflakeCursorProtocol) -> dict[str, str]:
+    def _get_warehouse_env_tags(
+        self, cursor: SnowflakeCursorProtocol, scan_context: ScanContext | None = None
+    ) -> dict[str, str]:
         """Fetches ENVIRONMENT tags for all warehouses."""
         env_tags: dict[str, str] = {}
         try:
-            tag_query = """
-            SELECT OBJECT_NAME, TAG_VALUE
-            FROM SNOWFLAKE.ACCOUNT_USAGE.TAG_REFERENCES
-            WHERE DOMAIN = 'WAREHOUSE'
-            AND TAG_NAME = 'ENVIRONMENT'
-            AND DELETED IS NULL
-            """
-            cursor.execute(tag_query)
-            for row in cursor.fetchall():
-                env_tags[row[0].upper()] = row[1].upper()
+            if scan_context is not None and scan_context.tag_refs is not None:
+                for row in scan_context.tag_refs:
+                    # row: DOMAIN=0, OBJECT_NAME=1, TAG_NAME=2, TAG_VALUE=3, COLUMN_NAME=4
+                    if str(row[0]).upper() == "WAREHOUSE" and str(row[2]).upper() == "ENVIRONMENT" and row[3]:
+                        env_tags[str(row[1]).upper()] = str(row[3]).upper()
+            else:
+                tag_query = """
+                SELECT OBJECT_NAME, TAG_VALUE
+                FROM SNOWFLAKE.ACCOUNT_USAGE.TAG_REFERENCES
+                WHERE DOMAIN = 'WAREHOUSE'
+                AND TAG_NAME = 'ENVIRONMENT'
+                AND DELETED IS NULL
+                """
+                cursor.execute(tag_query)
+                for row in cursor.fetchall():
+                    env_tags[row[0].upper()] = row[1].upper()
         except Exception:
             pass
         return env_tags
@@ -147,7 +167,14 @@ class ZombieWarehouseCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self,
+        cursor: SnowflakeCursorProtocol,
+        _resource_name: str | None = None,
+        *,
+        scan_context: ScanContext | None = None,
+        **_kw,
+    ) -> list[Violation]:
         """Check for warehouses with no query activity in last 7 days."""
         query = """
         SELECT WAREHOUSE_NAME
@@ -160,8 +187,11 @@ class ZombieWarehouseCheck(Rule):
             active_warehouses = {row[0] for row in cursor.fetchall()}
 
             # Get all warehouses to compare (exclude system/tool)
-            cursor.execute("SHOW WAREHOUSES")
-            all_warehouses = [wh for wh in cursor.fetchall() if not is_excluded_db_or_warehouse_name(wh[0])]
+            if scan_context is not None and scan_context.warehouses is not None:
+                all_warehouses = [wh for wh in scan_context.warehouses if not is_excluded_db_or_warehouse_name(wh[0])]
+            else:
+                cursor.execute("SHOW WAREHOUSES")
+                all_warehouses = [wh for wh in cursor.fetchall() if not is_excluded_db_or_warehouse_name(wh[0])]
 
             violations = []
             for wh in all_warehouses:
@@ -202,7 +232,9 @@ class CloudServicesRatioCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         query = """
         SELECT WAREHOUSE_NAME,
                SUM(CREDITS_USED_CLOUD_SERVICES) / NULLIF(SUM(CREDITS_USED), 0) * 100 as ratio
@@ -247,7 +279,9 @@ class RunawayQueryCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         query = "SHOW PARAMETERS LIKE 'STATEMENT_TIMEOUT_IN_SECONDS' IN ACCOUNT"
         cursor.execute(query)
         res = cursor.fetchone()
@@ -312,7 +346,9 @@ class UnderutilizedWarehouseCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         # Check Account Usage Load History for last 7 days.
         # Warning: WAREHOUSE_LOAD_HISTORY is latent (up to 2 hrs).
         query = """
@@ -360,7 +396,9 @@ class HighChurnPermanentTableCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         """Identify Permanent tables where Fail-safe bytes > 3x Active bytes."""
         query = (
             """
@@ -409,12 +447,23 @@ class PerWarehouseStatementTimeoutCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self,
+        cursor: SnowflakeCursorProtocol,
+        _resource_name: str | None = None,
+        *,
+        scan_context: ScanContext | None = None,
+        **_kw,
+    ) -> list[Violation]:
         violations = []
         try:
-            cursor.execute("SHOW WAREHOUSES")
-            warehouses = [wh for wh in cursor.fetchall() if not is_excluded_db_or_warehouse_name(wh[0])]
-            cols = {col[0].lower(): i for i, col in enumerate(cursor.description)}
+            if scan_context is not None and scan_context.warehouses is not None:
+                warehouses = [wh for wh in scan_context.warehouses if not is_excluded_db_or_warehouse_name(wh[0])]
+                cols = scan_context.warehouses_cols
+            else:
+                cursor.execute("SHOW WAREHOUSES")
+                warehouses = [wh for wh in cursor.fetchall() if not is_excluded_db_or_warehouse_name(wh[0])]
+                cols = {col[0].lower(): i for i, col in enumerate(cursor.description)}
             name_idx = cols["name"]
             for wh in warehouses:
                 wh_name = wh[name_idx]
@@ -460,7 +509,9 @@ class StaleTableDetectionCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         query = (
             f"""
         SELECT m.TABLE_CATALOG, m.TABLE_SCHEMA, m.TABLE_NAME, m.ACTIVE_BYTES
@@ -509,7 +560,9 @@ class StagingTableTypeOptimizationCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         query = (
             """
         SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME, FAILSAFE_BYTES, ACTIVE_BYTES
@@ -553,7 +606,9 @@ class UnusedMaterializedViewCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         # MVs that were refreshed in last 30 days but not in direct_objects_accessed in last 30 days
         query = (
             """
@@ -601,7 +656,9 @@ class DataTransferMonitoringCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         # Flag accounts with high recent transfer volume (last 7 days) - threshold 100 GB
         query = """
         SELECT SUM(BYTES_TRANSFERRED), COUNT(*)
@@ -646,7 +703,9 @@ class QASEligibilityRecommendationCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         query = f"""
         SELECT WAREHOUSE_NAME, SUM(COALESCE(ELIGIBLE_QUERY_ACCELERATION_TIME, 0)) AS TOTAL_ELIGIBLE_SEC, COUNT(*) AS ELIGIBLE_COUNT
         FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_ACCELERATION_ELIGIBLE
@@ -685,7 +744,9 @@ class AutomaticClusteringCostBenefitCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         query = (
             """
         SELECT DATABASE_NAME, SCHEMA_NAME, TABLE_NAME, SUM(CREDITS_USED) AS TOTAL_CREDITS
@@ -729,7 +790,9 @@ class SearchOptimizationCostBenefitCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         query = (
             """
         SELECT DATABASE_NAME, SCHEMA_NAME, SUM(CREDITS_USED) AS TOTAL_CREDITS, COUNT(*) AS OPS

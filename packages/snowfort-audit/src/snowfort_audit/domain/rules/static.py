@@ -159,7 +159,9 @@ class SelectStarCheck(Rule):
                     )
         return results
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         if not _resource_name:
             return []
 

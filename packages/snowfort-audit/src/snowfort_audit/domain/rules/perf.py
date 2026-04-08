@@ -9,6 +9,7 @@ from snowfort_audit.domain.rule_definitions import (
     Rule,
     Severity,
     Violation,
+    is_excluded_db_or_warehouse_name,
 )
 
 # Removed Infrastructure import
@@ -20,6 +21,7 @@ ONE_TB_BYTES = 1099511627776
 
 if TYPE_CHECKING:
     from snowfort_audit._vendor.protocols import SnowflakeCursorProtocol
+    from snowfort_audit.domain.scan_context import ScanContext
 
 
 class ClusterKeyValidationCheck(Rule):
@@ -36,22 +38,39 @@ class ClusterKeyValidationCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self,
+        cursor: SnowflakeCursorProtocol,
+        _resource_name: str | None = None,
+        *,
+        scan_context: ScanContext | None = None,
+        **_kw,
+    ) -> list[Violation]:
         violations = []
-        # Use ACCOUNT_USAGE.TABLES so no current database is required (INFORMATION_SCHEMA is per-database)
-        query = (
-            f"""
-        SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME, CLUSTERING_KEY
-        FROM SNOWFLAKE.ACCOUNT_USAGE.TABLES
-        WHERE DELETED IS NULL
-        AND TABLE_TYPE = 'BASE TABLE'
-        AND BYTES > {ONE_TB_BYTES}
-        """
-            + SQL_EXCLUDE_SYSTEM_AND_SNOWFORT
-        )
         try:
-            cursor.execute(query)
-            tables = cursor.fetchall()
+            if scan_context is not None and scan_context.tables is not None:
+                # cols: TABLE_CATALOG=0, TABLE_SCHEMA=1, TABLE_NAME=2, TABLE_TYPE=3, BYTES=4, CLUSTERING_KEY=8
+                tables = [
+                    (r[0], r[1], r[2], r[8])
+                    for r in scan_context.tables
+                    if r[3] == "BASE TABLE"
+                    and r[4] is not None
+                    and r[4] > ONE_TB_BYTES
+                    and not is_excluded_db_or_warehouse_name(r[0])
+                ]
+            else:
+                query = (
+                    f"""
+                SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME, CLUSTERING_KEY
+                FROM SNOWFLAKE.ACCOUNT_USAGE.TABLES
+                WHERE DELETED IS NULL
+                AND TABLE_TYPE = 'BASE TABLE'
+                AND BYTES > {ONE_TB_BYTES}
+                """
+                    + SQL_EXCLUDE_SYSTEM_AND_SNOWFORT
+                )
+                cursor.execute(query)
+                tables = cursor.fetchall()
 
             for row in tables:
                 violations.extend(self._check_table_clustering(cursor, row))
@@ -118,7 +137,9 @@ class RemoteSpillageCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         query = """
         SELECT WAREHOUSE_NAME, COUNT(*) as spill_count
         FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
@@ -158,7 +179,9 @@ class LocalSpillageCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         query = """
         SELECT WAREHOUSE_NAME, COUNT(*) as spill_count
         FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
@@ -199,7 +222,9 @@ class QueryQueuingDetectionCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         query = """
         SELECT WAREHOUSE_NAME, SUM(COALESCE(QUEUED_OVERLOAD_TIME, 0)) / 1000 AS QUEUED_SEC
         FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
@@ -242,7 +267,9 @@ class DynamicTableLagCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         query = """
         SELECT DATABASE_NAME, SCHEMA_NAME, NAME, COUNT(*) AS OVER_LAG_COUNT
         FROM SNOWFLAKE.ACCOUNT_USAGE.DYNAMIC_TABLE_REFRESH_HISTORY
@@ -286,23 +313,42 @@ class ClusteringKeyQualityCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
-        query = (
-            """
-        SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME, CLUSTERING_KEY
-        FROM SNOWFLAKE.ACCOUNT_USAGE.TABLES
-        WHERE DELETED IS NULL AND TABLE_TYPE = 'BASE TABLE'
-        AND CLUSTERING_KEY IS NOT NULL AND TRIM(CLUSTERING_KEY) != ''
-        """
-            + SQL_EXCLUDE_SYSTEM_AND_SNOWFORT
-            + """
-        LIMIT 500
-        """
-        )
+    def check_online(
+        self,
+        cursor: SnowflakeCursorProtocol,
+        _resource_name: str | None = None,
+        *,
+        scan_context: ScanContext | None = None,
+        **_kw,
+    ) -> list[Violation]:
         try:
-            cursor.execute(query)
+            if scan_context is not None and scan_context.tables is not None:
+                # cols: TABLE_CATALOG=0, TABLE_SCHEMA=1, TABLE_NAME=2, TABLE_TYPE=3, CLUSTERING_KEY=8
+                rows = [
+                    (r[0], r[1], r[2], r[8])
+                    for r in scan_context.tables
+                    if r[3] == "BASE TABLE"
+                    and r[8] is not None
+                    and str(r[8]).strip() != ""
+                    and not is_excluded_db_or_warehouse_name(r[0])
+                ][:500]
+            else:
+                query = (
+                    """
+                SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME, CLUSTERING_KEY
+                FROM SNOWFLAKE.ACCOUNT_USAGE.TABLES
+                WHERE DELETED IS NULL AND TABLE_TYPE = 'BASE TABLE'
+                AND CLUSTERING_KEY IS NOT NULL AND TRIM(CLUSTERING_KEY) != ''
+                """
+                    + SQL_EXCLUDE_SYSTEM_AND_SNOWFORT
+                    + """
+                LIMIT 500
+                """
+                )
+                cursor.execute(query)
+                rows = cursor.fetchall()
             violations = []
-            for row in cursor.fetchall():
+            for row in rows:
                 fq = f"{row[0]}.{row[1]}.{row[2]}"
                 key = (row[3] or "").upper()
                 if not key:
@@ -345,7 +391,9 @@ class WarehouseWorkloadIsolationCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         # Heuristic: same warehouse running both short SELECTs (BI) and long COPY/INSERT (ETL) in last 7 days
         query = """
         SELECT WAREHOUSE_NAME,
@@ -393,7 +441,9 @@ class PoorPartitionPruningDetectionCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         min_part = self.MIN_PARTITIONS_TOTAL
         ratio = self.PRUNING_RATIO_THRESHOLD
         query = f"""
@@ -445,7 +495,9 @@ class QueryLatencySLOCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         query = f"""
         WITH query_metrics AS (
             SELECT

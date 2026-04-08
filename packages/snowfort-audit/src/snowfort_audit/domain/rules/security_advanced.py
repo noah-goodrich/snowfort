@@ -25,7 +25,9 @@ class ServiceRoleScopeCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         # Efficient approach: Query GRANTS_TO_ROLES
         query = """
         SELECT GRANTEE_NAME, COUNT(DISTINCT TABLE_CATALOG) as db_count
@@ -62,7 +64,9 @@ class ServiceUserScopeCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         # GRANTS_TO_USERS only has role grants; privilege grants to users appear in GRANTS_TO_ROLES with GRANTED_TO = 'USER'
         query = """
         SELECT GRANTEE_NAME, COUNT(DISTINCT TABLE_CATALOG) as db_count
@@ -100,7 +104,9 @@ class ReadOnlyRoleIntegrityCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         query = """
         SELECT GRANTEE_NAME, PRIVILEGE, GRANTED_ON, NAME
         FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_ROLES
@@ -134,7 +140,9 @@ class ReadOnlyUserIntegrityCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         # Privilege grants to users appear in GRANTS_TO_ROLES with GRANTED_TO = 'USER'
         query = """
         SELECT GRANTEE_NAME, PRIVILEGE, GRANTED_ON, NAME

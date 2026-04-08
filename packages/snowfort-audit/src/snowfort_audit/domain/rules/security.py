@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from snowfort_audit._vendor.protocols import SnowflakeCursorProtocol
+    from snowfort_audit.domain.scan_context import ScanContext
 from datetime import datetime, timezone
 
 from snowfort_audit.domain.protocols import TelemetryPort
@@ -73,7 +74,9 @@ class AdminExposureCheck(Rule):
             ]
         return []
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         # Implementation moved from rules.py
         violations = []
 
@@ -116,12 +119,26 @@ class MFAEnforcementCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self,
+        cursor: SnowflakeCursorProtocol,
+        _resource_name: str | None = None,
+        *,
+        scan_context: ScanContext | None = None,
+        **_kw,
+    ) -> list[Violation]:
         """Flag users with elevated roles missing MFA."""
         violations = []
         try:
             admin_users = self._get_admin_users(cursor)
-            violations.extend(self._check_mfa_status(cursor, admin_users))
+            if scan_context is not None and scan_context.users is not None:
+                users = list(scan_context.users)
+                cols = scan_context.users_cols
+            else:
+                cursor.execute("SHOW USERS")
+                cols = {col[0].lower(): i for i, col in enumerate(cursor.description)}
+                users = cursor.fetchall()
+            violations.extend(self._check_mfa_status(users, cols, admin_users))
         except Exception as e:
             if self.telemetry:
                 self.telemetry.error(f"MFAEnforcementCheck failed: {e}")
@@ -136,11 +153,8 @@ class MFAEnforcementCheck(Rule):
             admin_users.update(users)
         return admin_users
 
-    def _check_mfa_status(self, cursor: SnowflakeCursorProtocol, admin_users: set[str]) -> list[Violation]:
+    def _check_mfa_status(self, users: list, cols: dict[str, int], admin_users: set[str]) -> list[Violation]:
         violations = []
-        cursor.execute("SHOW USERS")
-        cols = {col[0].lower(): i for i, col in enumerate(cursor.description)}
-        users = cursor.fetchall()
 
         for user in users:
             name = user[cols["name"]]
@@ -188,7 +202,9 @@ class NetworkPerimeterCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         violations = []
         violations.extend(self._check_account(cursor))
         violations.extend(self._check_users(cursor))
@@ -256,7 +272,9 @@ class PublicGrantsCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         # Check for dangerous privileges granted to PUBLIC
         query = "SHOW GRANTS TO ROLE PUBLIC"
         cursor.execute(query)
@@ -303,7 +321,9 @@ class UserOwnershipCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         """Check for databases/warehouses/integrations owned by users."""
         system_roles = {"SYSADMIN", "SECURITYADMIN", "ACCOUNTADMIN"}
         violations = []
@@ -368,16 +388,27 @@ class ServiceUserSecurityCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self,
+        cursor: SnowflakeCursorProtocol,
+        _resource_name: str | None = None,
+        *,
+        scan_context: ScanContext | None = None,
+        **_kw,
+    ) -> list[Violation]:
         violations = []
         try:
-            cursor.execute("SHOW USERS")
-            cols = {col[0].lower(): i for i, col in enumerate(cursor.description)}
+            if scan_context is not None and scan_context.users is not None:
+                users = list(scan_context.users)
+                cols = scan_context.users_cols
+            else:
+                cursor.execute("SHOW USERS")
+                cols = {col[0].lower(): i for i, col in enumerate(cursor.description)}
+                users = cursor.fetchall()
 
             if "type" not in cols:
                 return []
 
-            users = cursor.fetchall()
             for user in users:
                 user_type = user[cols["type"]]
                 if user_type == "SERVICE":
@@ -416,13 +447,23 @@ class ZombieUserCheck(Rule):
     NEVER_LOGGED_IN_THRESHOLD_DAYS = 30
     INACTIVE_THRESHOLD_DAYS = 90
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self,
+        cursor: SnowflakeCursorProtocol,
+        _resource_name: str | None = None,
+        *,
+        scan_context: ScanContext | None = None,
+        **_kw,
+    ) -> list[Violation]:
         violations = []
         try:
-            cursor.execute("SHOW USERS")
-            cols = {col[0].lower(): i for i, col in enumerate(cursor.description)}
-
-            users = cursor.fetchall()
+            if scan_context is not None and scan_context.users is not None:
+                users = list(scan_context.users)
+                cols = scan_context.users_cols
+            else:
+                cursor.execute("SHOW USERS")
+                cols = {col[0].lower(): i for i, col in enumerate(cursor.description)}
+                users = cursor.fetchall()
             now = datetime.now(timezone.utc)
 
             def _utc(dt: datetime | None) -> datetime | None:
@@ -475,13 +516,24 @@ class ZombieRoleCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self,
+        cursor: SnowflakeCursorProtocol,
+        _resource_name: str | None = None,
+        *,
+        scan_context: ScanContext | None = None,
+        **_kw,
+    ) -> list[Violation]:
         violations = []
         system_roles = {"ACCOUNTADMIN", "SECURITYADMIN", "SYSADMIN", "USERADMIN", "PUBLIC"}
 
         try:
-            cursor.execute("SHOW ROLES")
-            roles = [row[1] for row in cursor.fetchall() if row[1] not in system_roles]
+            if scan_context is not None and scan_context.roles is not None:
+                name_idx = scan_context.roles_cols.get("name", 1)
+                roles = [r[name_idx] for r in scan_context.roles if r[name_idx] not in system_roles]
+            else:
+                cursor.execute("SHOW ROLES")
+                roles = [row[1] for row in cursor.fetchall() if row[1] not in system_roles]
 
             for role in roles:
                 # 1. Orphan Check: Is this role granted TO anyone?
@@ -532,12 +584,23 @@ class FederatedAuthenticationCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self,
+        cursor: SnowflakeCursorProtocol,
+        _resource_name: str | None = None,
+        *,
+        scan_context: ScanContext | None = None,
+        **_kw,
+    ) -> list[Violation]:
         violations = []
         try:
-            cursor.execute("SHOW USERS")
-            cols = {col[0].lower(): i for i, col in enumerate(cursor.description)}
-            users = cursor.fetchall()
+            if scan_context is not None and scan_context.users is not None:
+                users = list(scan_context.users)
+                cols = scan_context.users_cols
+            else:
+                cursor.execute("SHOW USERS")
+                cols = {col[0].lower(): i for i, col in enumerate(cursor.description)}
+                users = cursor.fetchall()
             idx_mfa = cols.get("has_mfa")
             idx_duo = cols.get("ext_authn_duo")
             idx_key = cols.get("has_rsa_public_key")
@@ -577,7 +640,9 @@ class MFAAccountEnforcementCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         try:
             cursor.execute("SHOW PARAMETERS LIKE 'REQUIRE_MFA_FOR_ALL_USERS' IN ACCOUNT")
             row = cursor.fetchone()
@@ -618,7 +683,9 @@ class CISBenchmarkScannerCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         # Try Trust Center views that list scanner packages (schema may be LOCAL or TRUST_CENTER)
         for view in (
             "SNOWFLAKE.LOCAL.TRUST_CENTER.SCANNER_PACKAGES",
@@ -659,7 +726,9 @@ class PasswordPolicyCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         try:
             cursor.execute("SHOW PASSWORD POLICIES IN ACCOUNT")
             policies = cursor.fetchall()
@@ -694,7 +763,9 @@ class DataExfiltrationPreventionCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         violations = []
         params_to_check = [
             ("PREVENT_UNLOAD_TO_INLINE_URL", "TRUE", "Unload to inline URL not prevented"),
@@ -736,7 +807,9 @@ class PrivateConnectivityCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         try:
             cursor.execute("SHOW PARAMETERS LIKE 'CLIENT_PREFETCH_THREADS' IN ACCOUNT")
             _ = cursor.fetchone()
@@ -770,7 +843,9 @@ class DataMaskingPolicyCoverageCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         query = (
             """
         SELECT t.OBJECT_NAME, t.COLUMN_NAME, t.TAG_NAME
@@ -818,7 +893,9 @@ class RowAccessPolicyCoverageCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         # Tables that have at least one column with a sensitivity tag but no RAP
         query = (
             """
@@ -869,7 +946,9 @@ class SSOCoverageCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         try:
             cursor.execute("""
                 SELECT NAME, LOGIN_NAME, EXT_AUTHN_UID

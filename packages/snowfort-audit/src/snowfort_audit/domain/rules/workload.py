@@ -34,7 +34,9 @@ class WorkloadEfficiencyCheck(Rule):
         )
         self.evaluator = evaluator
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         # Identify oversized queries:
         query = """
         SELECT
@@ -124,7 +126,9 @@ class SpillingMemoryCheck(Rule):
         )
         self.evaluator = evaluator
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         query = """
         SELECT
             WAREHOUSE_NAME,

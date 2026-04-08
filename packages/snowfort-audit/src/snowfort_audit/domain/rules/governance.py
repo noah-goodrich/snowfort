@@ -3,10 +3,17 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from snowfort_audit.domain.protocols import TelemetryPort
-from snowfort_audit.domain.rule_definitions import SQL_EXCLUDE_SYSTEM_AND_SNOWFORT, Rule, Severity, Violation
+from snowfort_audit.domain.rule_definitions import (
+    SQL_EXCLUDE_SYSTEM_AND_SNOWFORT,
+    Rule,
+    Severity,
+    Violation,
+    is_excluded_db_or_warehouse_name,
+)
 
 if TYPE_CHECKING:
     from snowfort_audit._vendor.protocols import SnowflakeCursorProtocol
+    from snowfort_audit.domain.scan_context import ScanContext
 
 # Removed Infrastructure import
 
@@ -25,7 +32,9 @@ class FutureGrantsAntiPatternCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         # FUTURE_GRANTS are in a separate view usually, or GRANTS_TO_ROLES with specific flag
         query = """
         SELECT GRANTEE_NAME, GRANTED_ON
@@ -66,22 +75,40 @@ class ObjectDocumentationCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
-        query = (
-            """
-        SELECT TABLE_SCHEMA, TABLE_NAME
-        FROM SNOWFLAKE.ACCOUNT_USAGE.TABLES
-        WHERE TABLE_CATALOG LIKE '%_PROD%'
-        AND DELETED IS NULL
-        AND (COMMENT IS NULL OR COMMENT = '')
-        """
-            + SQL_EXCLUDE_SYSTEM_AND_SNOWFORT
-            + """
-        LIMIT 20
-        """
-        )
+    def check_online(
+        self,
+        cursor: SnowflakeCursorProtocol,
+        _resource_name: str | None = None,
+        *,
+        scan_context: ScanContext | None = None,
+        **_kw,
+    ) -> list[Violation]:
         try:
-            cursor.execute(query)
+            if scan_context is not None and scan_context.tables is not None:
+                # cols: TABLE_CATALOG=0, TABLE_SCHEMA=1, TABLE_NAME=2, COMMENT=9
+                rows = [
+                    (r[1], r[2])
+                    for r in scan_context.tables
+                    if "PROD" in str(r[0]).upper()
+                    and (r[9] is None or str(r[9]) == "")
+                    and not is_excluded_db_or_warehouse_name(r[0])
+                ][:20]
+            else:
+                query = (
+                    """
+                SELECT TABLE_SCHEMA, TABLE_NAME
+                FROM SNOWFLAKE.ACCOUNT_USAGE.TABLES
+                WHERE TABLE_CATALOG LIKE '%_PROD%'
+                AND DELETED IS NULL
+                AND (COMMENT IS NULL OR COMMENT = '')
+                """
+                    + SQL_EXCLUDE_SYSTEM_AND_SNOWFORT
+                    + """
+                LIMIT 20
+                """
+                )
+                cursor.execute(query)
+                rows = cursor.fetchall()
             return [
                 Violation(
                     self.id,
@@ -90,7 +117,7 @@ class ObjectDocumentationCheck(Rule):
                     self.severity,
                     remediation_key=self.remediation_key,
                 )
-                for row in cursor.fetchall()
+                for row in rows
             ]
         except (Exception, RuntimeError) as e:
             if self.telemetry:
@@ -112,7 +139,9 @@ class AccountBudgetEnforcement(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         # Check for active budgets in ACCOUNT_USAGE
         query = """
         SELECT COUNT(*)
@@ -205,7 +234,9 @@ class SensitiveDataClassificationCoverageCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         # Find columns whose names match PII heuristics but have no sensitivity tag in TAG_REFERENCES.
         # Exclude system/tool DBs so we only flag user data; avoid noise from SNOWFLAKE catalog columns.
         query = (

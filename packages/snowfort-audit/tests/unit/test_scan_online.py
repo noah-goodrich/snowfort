@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock
+from unittest.mock import ANY, MagicMock
 
 import pytest
 
@@ -28,7 +28,7 @@ def test_scan_online_success(telemetry):
 
     # Verify usage (get_cursor is called for initial connection, rule execution, and SHOW VIEWS)
     assert mock_gateway.get_cursor.called
-    mock_rule.check_online.assert_called_with(mock_cursor)
+    mock_rule.check_online.assert_called_with(mock_cursor, scan_context=ANY)
 
     # Verify output
     assert len(violations) == 1

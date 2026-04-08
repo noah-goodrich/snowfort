@@ -24,7 +24,9 @@ class CacheContentionCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         # Logic: High volume of data scanned by "Batch" style queries
         # AND Low cache hit rate for "Interactive" style queries on same WH.
         # Simplification for SQL:

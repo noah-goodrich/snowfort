@@ -9,7 +9,7 @@ class MockRule(Rule):
     def __init__(self):
         super().__init__(rule_id="MOCK_001", name="Mock Rule", severity=Severity.LOW)
 
-    def check_online(self, _cursor, _resource_name=None) -> list:
+    def check_online(self, cursor, _resource_name=None, **_kw) -> list:
         return []
 
 

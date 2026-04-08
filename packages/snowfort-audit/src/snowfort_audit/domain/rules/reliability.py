@@ -17,6 +17,7 @@ from snowfort_audit.domain.rule_definitions import (
 
 if TYPE_CHECKING:
     from snowfort_audit._vendor.protocols import SnowflakeCursorProtocol
+    from snowfort_audit.domain.scan_context import ScanContext
 
 
 class ReplicationCheck(Rule):
@@ -37,20 +38,18 @@ class ReplicationCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self,
+        cursor: SnowflakeCursorProtocol,
+        _resource_name: str | None = None,
+        *,
+        scan_context: ScanContext | None = None,
+        **_kw,
+    ) -> list[Violation]:
         violations = []
         try:
             # 1. Identify PRD Databases
-            cursor.execute("SHOW DATABASES")
-            all_dbs = []
-            cols = {col[0].lower(): i for i, col in enumerate(cursor.description)}
-
-            for row in cursor.fetchall():
-                name = row[cols["name"]]
-                if is_excluded_db_or_warehouse_name(name):
-                    continue
-                if "PRD" in name.upper() or "PROD" in name.upper():
-                    all_dbs.append(name)
+            all_dbs = self._fetch_prod_db_names(cursor, scan_context)
 
             if not all_dbs:
                 return []
@@ -76,6 +75,22 @@ class ReplicationCheck(Rule):
 
         return violations
 
+    def _fetch_prod_db_names(self, cursor: SnowflakeCursorProtocol, scan_context: ScanContext | None) -> list[str]:
+        all_dbs = []
+        if scan_context is not None and scan_context.databases is not None:
+            name_idx = scan_context.databases_cols.get("name", 1)
+            rows: list = list(scan_context.databases)
+        else:
+            cursor.execute("SHOW DATABASES")
+            cols = {col[0].lower(): i for i, col in enumerate(cursor.description)}
+            rows = cursor.fetchall()
+            name_idx = cols.get("name", 1)
+        for row in rows:
+            name = row[name_idx]
+            if not is_excluded_db_or_warehouse_name(name) and ("PRD" in name.upper() or "PROD" in name.upper()):
+                all_dbs.append(name)
+        return all_dbs
+
 
 class RetentionSafetyCheck(Rule):
     """REL_002: Flag Production Tables with DATA_RETENTION_TIME_IN_DAYS = 0."""
@@ -96,24 +111,42 @@ class RetentionSafetyCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
-        query = (
-            """
-        SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME
-        FROM SNOWFLAKE.ACCOUNT_USAGE.TABLES
-        WHERE DELETED IS NULL
-        AND RETENTION_TIME = 0
-        AND TABLE_TYPE = 'BASE TABLE'
-        AND (TABLE_CATALOG ILIKE '%PRD%' OR TABLE_CATALOG ILIKE '%PROD%')
-        """
-            + SQL_EXCLUDE_SYSTEM_AND_SNOWFORT
-            + """
-        LIMIT 50
-        """
-        )
+    def check_online(
+        self,
+        cursor: SnowflakeCursorProtocol,
+        _resource_name: str | None = None,
+        *,
+        scan_context: ScanContext | None = None,
+        **_kw,
+    ) -> list[Violation]:
         try:
-            cursor.execute(query)
-            rows = cursor.fetchall()
+            if scan_context is not None and scan_context.tables is not None:
+                # cols: TABLE_CATALOG=0, TABLE_SCHEMA=1, TABLE_NAME=2, TABLE_TYPE=3, RETENTION_TIME=6
+                rows = [
+                    r
+                    for r in scan_context.tables
+                    if r[3] == "BASE TABLE"
+                    and r[6] == 0
+                    and ("PRD" in str(r[0]).upper() or "PROD" in str(r[0]).upper())
+                    and not is_excluded_db_or_warehouse_name(r[0])
+                ][:50]
+            else:
+                query = (
+                    """
+                SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME
+                FROM SNOWFLAKE.ACCOUNT_USAGE.TABLES
+                WHERE DELETED IS NULL
+                AND RETENTION_TIME = 0
+                AND TABLE_TYPE = 'BASE TABLE'
+                AND (TABLE_CATALOG ILIKE '%PRD%' OR TABLE_CATALOG ILIKE '%PROD%')
+                """
+                    + SQL_EXCLUDE_SYSTEM_AND_SNOWFORT
+                    + """
+                LIMIT 50
+                """
+                )
+                cursor.execute(query)
+                rows = cursor.fetchall()
             return [
                 Violation(
                     self.id,
@@ -141,24 +174,42 @@ class AdequateTimeTravelRetentionCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
-        query = (
-            """
-        SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME
-        FROM SNOWFLAKE.ACCOUNT_USAGE.TABLES
-        WHERE DELETED IS NULL
-        AND TABLE_TYPE = 'BASE TABLE'
-        AND (TABLE_CATALOG ILIKE '%PRD%' OR TABLE_CATALOG ILIKE '%PROD%')
-        AND RETENTION_TIME = 1
-        """
-            + SQL_EXCLUDE_SYSTEM_AND_SNOWFORT
-            + """
-        LIMIT 50
-        """
-        )
+    def check_online(
+        self,
+        cursor: SnowflakeCursorProtocol,
+        _resource_name: str | None = None,
+        *,
+        scan_context: ScanContext | None = None,
+        **_kw,
+    ) -> list[Violation]:
         try:
-            cursor.execute(query)
-            rows = cursor.fetchall()
+            if scan_context is not None and scan_context.tables is not None:
+                # cols: TABLE_CATALOG=0, TABLE_SCHEMA=1, TABLE_NAME=2, TABLE_TYPE=3, RETENTION_TIME=6
+                rows = [
+                    r
+                    for r in scan_context.tables
+                    if r[3] == "BASE TABLE"
+                    and r[6] == 1
+                    and ("PRD" in str(r[0]).upper() or "PROD" in str(r[0]).upper())
+                    and not is_excluded_db_or_warehouse_name(r[0])
+                ][:50]
+            else:
+                query = (
+                    """
+                SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME
+                FROM SNOWFLAKE.ACCOUNT_USAGE.TABLES
+                WHERE DELETED IS NULL
+                AND TABLE_TYPE = 'BASE TABLE'
+                AND (TABLE_CATALOG ILIKE '%PRD%' OR TABLE_CATALOG ILIKE '%PROD%')
+                AND RETENTION_TIME = 1
+                """
+                    + SQL_EXCLUDE_SYSTEM_AND_SNOWFORT
+                    + """
+                LIMIT 50
+                """
+                )
+                cursor.execute(query)
+                rows = cursor.fetchall()
             return [
                 self.violation(
                     f"{row[0]}.{row[1]}.{row[2]}",
@@ -201,22 +252,37 @@ class SchemaEvolutionCheck(Rule):
             ]
         return []
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
-        query = (
-            """
-        SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME
-        FROM SNOWFLAKE.ACCOUNT_USAGE.TABLES
-        WHERE DELETED IS NULL
-        AND ENABLE_SCHEMA_EVOLUTION = 'YES'
-        """
-            + SQL_EXCLUDE_SYSTEM_AND_SNOWFORT
-            + """
-        LIMIT 50
-        """
-        )
+    def check_online(
+        self,
+        cursor: SnowflakeCursorProtocol,
+        _resource_name: str | None = None,
+        *,
+        scan_context: ScanContext | None = None,
+        **_kw,
+    ) -> list[Violation]:
         try:
-            cursor.execute(query)
-            rows = cursor.fetchall()
+            if scan_context is not None and scan_context.tables is not None:
+                # cols: TABLE_CATALOG=0, TABLE_SCHEMA=1, TABLE_NAME=2, ENABLE_SCHEMA_EVOLUTION=7
+                rows = [
+                    r
+                    for r in scan_context.tables
+                    if str(r[7] or "").upper() in ("YES", "TRUE", "1") and not is_excluded_db_or_warehouse_name(r[0])
+                ][:50]
+            else:
+                query = (
+                    """
+                SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME
+                FROM SNOWFLAKE.ACCOUNT_USAGE.TABLES
+                WHERE DELETED IS NULL
+                AND ENABLE_SCHEMA_EVOLUTION = 'YES'
+                """
+                    + SQL_EXCLUDE_SYSTEM_AND_SNOWFORT
+                    + """
+                LIMIT 50
+                """
+                )
+                cursor.execute(query)
+                rows = cursor.fetchall()
             return [
                 Violation(
                     self.id,
@@ -244,7 +310,9 @@ class FailoverGroupCompletenessCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         try:
             cursor.execute("SHOW FAILOVER GROUPS")
             rows = cursor.fetchall()
@@ -287,7 +355,9 @@ class ReplicationLagMonitoringCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         query = """
         SELECT t.REPLICATION_GROUP_NAME, t.PRIMARY_SNAPSHOT_TIMESTAMP,
                DATEDIFF('minute', t.PRIMARY_SNAPSHOT_TIMESTAMP, CURRENT_TIMESTAMP()) AS LAG_MIN
@@ -329,7 +399,9 @@ class FailedTaskDetectionCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         query = (
             """
         SELECT NAME, DATABASE_NAME, SCHEMA_NAME, COUNT(*) AS FAIL_COUNT
@@ -374,7 +446,9 @@ class PipelineObjectReplicationCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         query = (
             """
         SELECT p.database_name

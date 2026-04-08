@@ -30,7 +30,9 @@ class IsolationPivotCheck(Rule):
             telemetry=telemetry,
         )
 
-    def check_online(self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None) -> list[Violation]:
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
         # Logic: Find queries that are > 100x larger than the warehouse average
         query = """
         WITH WhStats AS (
