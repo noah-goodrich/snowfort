@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
+from snowfort_audit.domain.rules._grants import admin_role_user_counts
 from snowfort_audit.domain.rules.security import (
     AdminExposureCheck,
     CISBenchmarkScannerCheck,
@@ -305,3 +306,114 @@ def test_adv_ro_user():
     c = MagicMock()
     c.fetchall.return_value = [("R_READER", "DELETE", "TABLE", "T")]
     assert len(ReadOnlyUserIntegrityCheck().check_online(c)) == 1
+
+
+# ── A1: grant-graph reachability regression tests ────────────────────────────
+# GTR row layout: (GRANTEE_NAME, NAME, GRANTED_ON, PRIVILEGE, TABLE_CATALOG, GRANTED_TO)
+# GTU row layout: (GRANTEE_NAME, ROLE)
+
+
+def _make_gtr_role_grant(parent_role: str, child_role: str) -> tuple:
+    """GRANTED_ON='ROLE' row: child_role is granted to parent_role."""
+    return (parent_role, child_role, "ROLE", "USAGE", "", "ROLE")
+
+
+def _make_gtu_row(user: str, role: str) -> tuple:
+    return (user, role)
+
+
+def test_admin_role_user_counts_direct_grant():
+    """User with a direct ACCOUNTADMIN assignment is counted."""
+    gtu = (_make_gtu_row("USER_A", "ACCOUNTADMIN"),)
+    result = admin_role_user_counts((), gtu)
+    assert "USER_A" in result["ACCOUNTADMIN"]
+
+
+def test_admin_role_user_counts_three_level_chain():
+    """A1 regression: user reachable via 3-level role chain is detected.
+
+    Chain: USER_B → ROLE_R1 → ROLE_R2 → ACCOUNTADMIN
+    Old SHOW GRANTS OF ROLE only returned 1-hop direct grantees and would miss USER_B.
+    """
+    gtr = (
+        _make_gtr_role_grant("ROLE_R1", "ROLE_R2"),       # R1 contains R2
+        _make_gtr_role_grant("ROLE_R2", "ACCOUNTADMIN"),  # R2 contains ACCOUNTADMIN
+    )
+    gtu = (_make_gtu_row("USER_B", "ROLE_R1"),)
+    result = admin_role_user_counts(gtr, gtu)
+    assert "USER_B" in result["ACCOUNTADMIN"], "3-level chain not traversed"
+
+
+def test_admin_role_user_counts_all_three_users():
+    """A1 regression: 3 distinct users via 3 different paths are all detected.
+
+    - USER_A: direct ACCOUNTADMIN grant (GRANTS_TO_USERS)
+    - USER_B: role chain R1 → R2 → ACCOUNTADMIN
+    - USER_C: single-hop role R3 → ACCOUNTADMIN
+    Expected: all 3 found, not 1.
+    """
+    gtr = (
+        _make_gtr_role_grant("ROLE_R1", "ROLE_R2"),
+        _make_gtr_role_grant("ROLE_R2", "ACCOUNTADMIN"),
+        _make_gtr_role_grant("ROLE_R3", "ACCOUNTADMIN"),
+    )
+    gtu = (
+        _make_gtu_row("USER_A", "ACCOUNTADMIN"),
+        _make_gtu_row("USER_B", "ROLE_R1"),
+        _make_gtu_row("USER_C", "ROLE_R3"),
+    )
+    result = admin_role_user_counts(gtr, gtu)
+    assert result["ACCOUNTADMIN"] == {"USER_A", "USER_B", "USER_C"}, (
+        f"Expected 3 users, got: {result['ACCOUNTADMIN']}"
+    )
+
+
+def test_admin_exposure_check_online_with_scan_context():
+    """AdminExposureCheck via scan_context uses BFS and detects all 3 users."""
+    from snowfort_audit.domain.scan_context import ScanContext
+
+    gtr = (
+        _make_gtr_role_grant("ROLE_R1", "ROLE_R2"),
+        _make_gtr_role_grant("ROLE_R2", "ACCOUNTADMIN"),
+        _make_gtr_role_grant("ROLE_R3", "ACCOUNTADMIN"),
+    )
+    gtu = (
+        _make_gtu_row("USER_A", "ACCOUNTADMIN"),
+        _make_gtu_row("USER_B", "ROLE_R1"),
+        _make_gtu_row("USER_C", "ROLE_R3"),
+    )
+
+    ctx = ScanContext()
+    ctx.get_or_fetch("GRANTS_TO_ROLES", 0, lambda v, w: gtr)
+    ctx.get_or_fetch("GRANTS_TO_USERS", 0, lambda v, w: gtu)
+
+    c = MagicMock()
+    # cursor should NOT be called — all data is in cache
+    c.execute.side_effect = AssertionError("cursor must not be called when scan_context is set")
+
+    rule = AdminExposureCheck()
+    violations = rule.check_online(c, scan_context=ctx)
+    # 3 ACCOUNTADMINs → _check_account_admin(3) → [] (OK: within 2-3 range)
+    assert violations == [], f"Expected no violations for count=3, got: {violations}"
+
+
+def test_admin_exposure_check_online_scan_context_too_many():
+    """AdminExposureCheck via scan_context flags > MAX_ACCOUNT_ADMINS (4 users)."""
+    from snowfort_audit.domain.scan_context import ScanContext
+
+    gtu = (
+        _make_gtu_row("U1", "ACCOUNTADMIN"),
+        _make_gtu_row("U2", "ACCOUNTADMIN"),
+        _make_gtu_row("U3", "ACCOUNTADMIN"),
+        _make_gtu_row("U4", "ACCOUNTADMIN"),
+    )
+    ctx = ScanContext()
+    ctx.get_or_fetch("GRANTS_TO_ROLES", 0, lambda v, w: ())
+    ctx.get_or_fetch("GRANTS_TO_USERS", 0, lambda v, w: gtu)
+
+    c = MagicMock()
+    c.execute.side_effect = AssertionError("cursor must not be called when scan_context is set")
+
+    violations = AdminExposureCheck().check_online(c, scan_context=ctx)
+    assert len(violations) == 1
+    assert "4" in violations[0].message

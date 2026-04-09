@@ -152,7 +152,9 @@ def test_online_scan_execute_view_fallback_uses_check_online(telemetry):
 
     def execute_side_effect(arg):
         call_num[0] += 1
-        if "ACCOUNT_USAGE.VIEWS" in arg:
+        # Block both the batch-DDL view query and the A2 active-databases queries so
+        # the fallback path runs with active_dbs_upper=frozenset() (all views pass).
+        if "ACCOUNT_USAGE.VIEWS" in arg or "ACCOUNT_USAGE.DATABASES" in arg:
             raise RuntimeError("Insufficient privileges")
 
     # SHOW VIEWS columns: created_on(0), name(1), reserved(2), kind(3), database_name(4), schema_name(5)
@@ -208,3 +210,40 @@ def test_online_scan_execute_parallel_uses_worker_cursors(telemetry):
 
     assert mock_gateway.get_cursor_for_worker.called
     assert isinstance(violations, list)
+
+
+def test_fetch_batch_ddl_excludes_dropped_database_views(telemetry):
+    """A2: _fetch_batch_ddl skips views whose parent database appears in DATABASES but is dropped."""
+    from snowfort_audit.use_cases.online_scan import OnlineScanUseCase
+
+    active_db_rows = [("ACTIVE_DB",)]
+    # View from ACTIVE_DB + view from DROPPED_DB (should be filtered out).
+    view_rows = [
+        ("ACTIVE_DB", "PUBLIC", "V1", "SELECT 1"),
+        ("DROPPED_DB", "PUBLIC", "V2", "SELECT 2"),
+    ]
+    mock_cursor = MagicMock()
+    # First fetchall: DATABASES; second fetchall: VIEWS
+    mock_cursor.fetchall.side_effect = [active_db_rows, view_rows]
+    mock_cursor.execute.return_value = None
+
+    mock_gateway = MagicMock()
+    mock_gateway.get_cursor.return_value = mock_cursor
+
+    validator = MagicMock()
+    validator.validate.return_value = []
+    from snowfort_audit.domain.rules.static import SelectStarCheck
+
+    rule = SelectStarCheck(validator=validator, telemetry=telemetry)
+    rule.check_static = MagicMock(return_value=[])
+
+    use_case = OnlineScanUseCase(mock_gateway, [rule], telemetry)
+    use_case._fetch_batch_ddl(mock_cursor, frozenset(), frozenset())
+
+    # _fetch_batch_ddl should return only V1 (DROPPED_DB view filtered out).
+    # Call it directly to inspect the return value.
+    mock_cursor.fetchall.side_effect = [active_db_rows, view_rows]
+    result = use_case._fetch_batch_ddl(mock_cursor, frozenset(), frozenset())
+    assert result is not None
+    assert "ACTIVE_DB.PUBLIC.V1" in result
+    assert "DROPPED_DB.PUBLIC.V2" not in result

@@ -15,6 +15,13 @@ if TYPE_CHECKING:
     from snowfort_audit._vendor.protocols import SnowflakeCursorProtocol
     from snowfort_audit.domain.scan_context import ScanContext
 
+from snowfort_audit.domain.rules._grants import (
+    GRANTS_CACHE_WINDOW,
+    GTR_GRANTED_ON,
+    GTR_GRANTEE_NAME,
+    gtr_fetcher,
+)
+
 # Removed Infrastructure import
 
 
@@ -32,19 +39,39 @@ class FutureGrantsAntiPatternCheck(Rule):
             telemetry=telemetry,
         )
 
+    _FUTURE_LIMIT = 10  # Keep result set bounded, same as original SQL LIMIT
+
     def check_online(
-        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+        self,
+        cursor: SnowflakeCursorProtocol,
+        _resource_name: str | None = None,
+        *,
+        scan_context: ScanContext | None = None,
+        **_kw,
     ) -> list[Violation]:
-        # FUTURE_GRANTS are in a separate view usually, or GRANTS_TO_ROLES with specific flag
-        query = """
-        SELECT GRANTEE_NAME, GRANTED_ON
-        FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_ROLES
-        WHERE GRANTED_ON LIKE 'FUTURE_%'
-        AND DELETED_ON IS NULL
-        LIMIT 10
-        """
         try:
-            cursor.execute(query)
+            if scan_context is not None:
+                # Use shared grants cache — no extra round-trip to Snowflake.
+                gtr = scan_context.get_or_fetch("GRANTS_TO_ROLES", GRANTS_CACHE_WINDOW, gtr_fetcher(cursor))
+                future_rows = [r for r in gtr if str(r[GTR_GRANTED_ON]).upper().startswith("FUTURE_")]
+                return [
+                    Violation(
+                        self.id,
+                        str(row[GTR_GRANTEE_NAME]),
+                        f"Uses Future Grants on {row[GTR_GRANTED_ON]}. Prefer explicit DCM.",
+                        self.severity,
+                        remediation_key=self.remediation_key,
+                    )
+                    for row in future_rows[: self._FUTURE_LIMIT]
+                ]
+            # Fallback: direct query when no ScanContext.
+            cursor.execute(
+                "SELECT GRANTEE_NAME, GRANTED_ON"
+                " FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_ROLES"
+                " WHERE GRANTED_ON LIKE 'FUTURE_%'"
+                " AND DELETED_ON IS NULL"
+                f" LIMIT {self._FUTURE_LIMIT}"
+            )
             return [
                 Violation(
                     self.id,

@@ -14,8 +14,25 @@ from snowfort_audit.domain.rule_definitions import (
     Severity,
     Violation,
 )
+from snowfort_audit.domain.rules._grants import (
+    GRANTS_CACHE_WINDOW,
+    GTR_GRANTED_ON,
+    GTR_GRANTEE_NAME,
+    GTR_NAME,
+    GTU_ROLE,
+    admin_role_user_counts,
+    gtr_fetcher,
+    gtu_fetcher,
+)
 
-# Removed Infrastructure import
+# Re-export for governance.py and security_advanced.py (avoids chained imports).
+_GRANTS_CACHE_WINDOW = GRANTS_CACHE_WINDOW
+_GTR_GRANTEE_NAME = GTR_GRANTEE_NAME
+_GTR_GRANTED_ON = GTR_GRANTED_ON
+_GTR_NAME = GTR_NAME
+_GTU_ROLE = GTU_ROLE
+_gtr_fetcher = gtr_fetcher
+_gtu_fetcher = gtu_fetcher
 
 
 class AdminExposureCheck(Rule):
@@ -75,29 +92,39 @@ class AdminExposureCheck(Rule):
         return []
 
     def check_online(
-        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+        self,
+        cursor: SnowflakeCursorProtocol,
+        _resource_name: str | None = None,
+        *,
+        scan_context: ScanContext | None = None,
+        **_kw,
     ) -> list[Violation]:
-        # Implementation moved from rules.py
         violations = []
-
-        strategies = {
-            "ACCOUNTADMIN": self._check_account_admin,
-            "SECURITYADMIN": lambda c: self._check_generic_admin("SECURITYADMIN", c),
-            "SYSADMIN": lambda c: self._check_generic_admin("SYSADMIN", c),
-        }
-
-        for role, strategy in strategies.items():
-            cursor.execute(f"SHOW GRANTS OF ROLE {role}")
-
-            # Filter for USER grantees only
-            users_with_role = [
-                row[3]
-                for row in cursor.fetchall()  # row[3] is grantee_name
-                if row[2] == "USER"  # row[2] is granted_to
-            ]
-
-            violations.extend(strategy(len(users_with_role)))
-
+        try:
+            if scan_context is not None:
+                # A1 fix: use recursive graph traversal via the shared grants cache.
+                # The old SHOW GRANTS OF ROLE only returned direct grantees and missed
+                # users who reach ACCOUNTADMIN via role chains (e.g. USER → R1 → R2 → ACCOUNTADMIN).
+                gtr = scan_context.get_or_fetch("GRANTS_TO_ROLES", _GRANTS_CACHE_WINDOW, _gtr_fetcher(cursor))
+                gtu = scan_context.get_or_fetch("GRANTS_TO_USERS", _GRANTS_CACHE_WINDOW, _gtu_fetcher(cursor))
+                role_users = admin_role_user_counts(gtr, gtu)
+                violations.extend(self._check_account_admin(len(role_users["ACCOUNTADMIN"])))
+                violations.extend(self._check_generic_admin("SECURITYADMIN", len(role_users["SECURITYADMIN"])))
+                violations.extend(self._check_generic_admin("SYSADMIN", len(role_users["SYSADMIN"])))
+            else:
+                # Fallback (no ScanContext): direct SHOW GRANTS OF ROLE.
+                # NOTE: this path misses role-chain grants — use scan_context for production scans.
+                for role, check_fn in [
+                    ("ACCOUNTADMIN", self._check_account_admin),
+                    ("SECURITYADMIN", lambda c: self._check_generic_admin("SECURITYADMIN", c)),
+                    ("SYSADMIN", lambda c: self._check_generic_admin("SYSADMIN", c)),
+                ]:
+                    cursor.execute(f"SHOW GRANTS OF ROLE {role}")
+                    users_with_role = [row[3] for row in cursor.fetchall() if row[2] == "USER"]
+                    violations.extend(check_fn(len(users_with_role)))
+        except Exception as e:
+            if self.telemetry:
+                self.telemetry.error(f"AdminExposureCheck failed: {e}")
         return violations
 
 
@@ -130,7 +157,7 @@ class MFAEnforcementCheck(Rule):
         """Flag users with elevated roles missing MFA."""
         violations = []
         try:
-            admin_users = self._get_admin_users(cursor)
+            admin_users = self._get_admin_users(cursor, scan_context)
             if scan_context is not None and scan_context.users is not None:
                 users = list(scan_context.users)
                 cols = scan_context.users_cols
@@ -144,13 +171,22 @@ class MFAEnforcementCheck(Rule):
                 self.telemetry.error(f"MFAEnforcementCheck failed: {e}")
         return violations
 
-    def _get_admin_users(self, cursor: SnowflakeCursorProtocol) -> set[str]:
+    def _get_admin_users(
+        self,
+        cursor: SnowflakeCursorProtocol,
+        scan_context: ScanContext | None = None,
+    ) -> set[str]:
+        if scan_context is not None:
+            gtr = scan_context.get_or_fetch("GRANTS_TO_ROLES", _GRANTS_CACHE_WINDOW, _gtr_fetcher(cursor))
+            gtu = scan_context.get_or_fetch("GRANTS_TO_USERS", _GRANTS_CACHE_WINDOW, _gtu_fetcher(cursor))
+            role_users = admin_role_user_counts(gtr, gtu)
+            return role_users["ACCOUNTADMIN"] | role_users["SYSADMIN"] | role_users["SECURITYADMIN"]
+        # Fallback: SHOW GRANTS OF ROLE (misses role-chain grants)
         elevated_roles = ["ACCOUNTADMIN", "SYSADMIN", "SECURITYADMIN"]
-        admin_users = set()
+        admin_users: set[str] = set()
         for role in elevated_roles:
             cursor.execute(f"SHOW GRANTS OF ROLE {role}")
-            users = {row[3] for row in cursor.fetchall() if row[2] == "USER"}
-            admin_users.update(users)
+            admin_users.update(row[3] for row in cursor.fetchall() if row[2] == "USER")
         return admin_users
 
     def _check_mfa_status(self, users: list, cols: dict[str, int], admin_users: set[str]) -> list[Violation]:
@@ -535,23 +571,29 @@ class ZombieRoleCheck(Rule):
                 cursor.execute("SHOW ROLES")
                 roles = [row[1] for row in cursor.fetchall() if row[1] not in system_roles]
 
-            # Batch: replace 2N SHOW GRANTS calls with 3 ACCOUNT_USAGE queries
-            # Orphan set: roles that are granted TO a role or user
-            cursor.execute(
-                "SELECT DISTINCT NAME FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_ROLES "
-                "WHERE GRANTED_ON = 'ROLE' AND DELETED_ON IS NULL"
-            )
-            granted_to_role: set[str] = {str(r[0]).upper() for r in cursor.fetchall()}
-
-            cursor.execute("SELECT DISTINCT ROLE FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_USERS WHERE DELETED_ON IS NULL")
-            granted_to_user: set[str] = {str(r[0]).upper() for r in cursor.fetchall()}
+            # Use shared grants cache — replaces 3 separate ACCOUNT_USAGE queries with cached rows.
+            if scan_context is not None:
+                gtr = scan_context.get_or_fetch("GRANTS_TO_ROLES", _GRANTS_CACHE_WINDOW, _gtr_fetcher(cursor))
+                gtu = scan_context.get_or_fetch("GRANTS_TO_USERS", _GRANTS_CACHE_WINDOW, _gtu_fetcher(cursor))
+                # Orphan set: roles that are granted as a role to another role
+                granted_to_role: set[str] = {str(r[_GTR_NAME]).upper() for r in gtr if str(r[_GTR_GRANTED_ON]).upper() == "ROLE"}
+                # Orphan set: roles granted directly to users
+                granted_to_user: set[str] = {str(r[_GTU_ROLE]).upper() for r in gtu}
+                # Empty set: roles that appear as GRANTEE_NAME (have at least one privilege or role granted)
+                roles_with_grants: set[str] = {str(r[_GTR_GRANTEE_NAME]).upper() for r in gtr}
+            else:
+                cursor.execute(
+                    "SELECT DISTINCT NAME FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_ROLES "
+                    "WHERE GRANTED_ON = 'ROLE' AND DELETED_ON IS NULL"
+                )
+                granted_to_role = {str(r[0]).upper() for r in cursor.fetchall()}
+                cursor.execute("SELECT DISTINCT ROLE FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_USERS WHERE DELETED_ON IS NULL")
+                granted_to_user = {str(r[0]).upper() for r in cursor.fetchall()}
+                cursor.execute(
+                    "SELECT DISTINCT GRANTEE_NAME FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_ROLES WHERE DELETED_ON IS NULL"
+                )
+                roles_with_grants = {str(r[0]).upper() for r in cursor.fetchall()}
             non_orphan_roles = granted_to_role | granted_to_user
-
-            # Empty set: roles that have at least one grant (privilege or role)
-            cursor.execute(
-                "SELECT DISTINCT GRANTEE_NAME FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_ROLES WHERE DELETED_ON IS NULL"
-            )
-            roles_with_grants: set[str] = {str(r[0]).upper() for r in cursor.fetchall()}
 
             for role in roles:
                 role_upper = role.upper()

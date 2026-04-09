@@ -251,6 +251,12 @@ class OnlineScanUseCase:
         Returns {view_name: ddl} dict, or None if unavailable (triggers fallback).
         """
         try:
+            # A2: fetch active databases first to skip views from dropped databases.
+            cur.execute(
+                "SELECT DATABASE_NAME FROM SNOWFLAKE.ACCOUNT_USAGE.DATABASES WHERE DELETED IS NULL"
+            )
+            active_dbs_upper: frozenset[str] = frozenset(str(r[0]).upper() for r in cur.fetchall())
+
             cur.execute(
                 "SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME, VIEW_DEFINITION"
                 " FROM SNOWFLAKE.ACCOUNT_USAGE.VIEWS"
@@ -264,6 +270,8 @@ class OnlineScanUseCase:
                 catalog = (row[0] or "").upper()
                 if catalog in excluded_dbs or catalog in excluded_db_like:
                     continue
+                if catalog not in active_dbs_upper:
+                    continue  # A2: skip views from dropped databases
                 view_name = f"{row[0]}.{row[1]}.{row[2]}"
                 ddl_map[view_name] = row[3] or ""
             self.telemetry.debug(f"  Batch DDL: fetched DDL for {len(ddl_map)} views via ACCOUNT_USAGE.VIEWS.")
@@ -338,6 +346,14 @@ class OnlineScanUseCase:
     ) -> tuple[list[Violation], list[RuleTiming]]:
         """Run view-scoped rules via SHOW VIEWS + per-view GET_DDL (fallback path)."""
         timings: list[RuleTiming] = []
+        # A2: fetch active databases to exclude views from dropped databases.
+        try:
+            cur.execute(
+                "SELECT DATABASE_NAME FROM SNOWFLAKE.ACCOUNT_USAGE.DATABASES WHERE DELETED IS NULL"
+            )
+            active_dbs_upper: frozenset[str] = frozenset(str(r[0]).upper() for r in cur.fetchall())
+        except Exception:
+            active_dbs_upper = frozenset()
         cur.execute("SHOW VIEWS IN ACCOUNT")
         all_rows = cur.fetchall()
         DB_NAME_IDX, SCHEMA_NAME_IDX, VIEW_NAME_IDX = 4, 5, 1
@@ -347,6 +363,7 @@ class OnlineScanUseCase:
             if len(r) > max(DB_NAME_IDX, SCHEMA_NAME_IDX, VIEW_NAME_IDX)
             and (r[DB_NAME_IDX] or "").upper() not in excluded_dbs
             and (r[DB_NAME_IDX] or "").upper() not in excluded_db_like
+            and (not active_dbs_upper or (r[DB_NAME_IDX] or "").upper() in active_dbs_upper)
         ]
         n_views = len(views)
         n_per_view = len(rules_for_view)
