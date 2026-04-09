@@ -213,12 +213,14 @@ class OnlineScanUseCase:
 
         use_parallel = workers > 1 and hasattr(self.gateway, "get_cursor_for_worker")
         if use_parallel:
-            # Try one extra connection in main thread; with MFA/TOTP it often fails (one-time code)
+            # Try one extra connection; interactive auth (browser/TOTP) typically allows only one at a time.
             try:
                 _ = self.gateway.get_cursor_for_worker(1)
             except Exception:
-                self.telemetry.info(
-                    "  Multiple connections need a new MFA code each; using 1 worker. (Use --workers 1 with MFA.)"
+                self.telemetry.warning(
+                    "Interactive authentication detected — parallel workers require separate connections. "
+                    "Falling back to 1 worker. "
+                    "For parallel scans, use keypair auth: run 'snowfort audit bootstrap --keypair'."
                 )
                 use_parallel = False
                 workers = 1

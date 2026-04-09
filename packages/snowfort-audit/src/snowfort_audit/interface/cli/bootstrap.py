@@ -14,11 +14,46 @@ from snowfort_audit.interface.timer import timed_operation
 
 @audit.command()
 @click.option("--role", default="ACCOUNTADMIN", help="Role to use for bootstrapping (needs Create Role privs)")
+@click.option(
+    "--keypair",
+    is_flag=True,
+    default=False,
+    help=(
+        "Generate an RSA-2048 keypair for Snowflake key-pair authentication. "
+        "Writes the private key to --key-path (default: ~/.snowflake/snowfort_rsa_key.p8) "
+        "and prints the ALTER USER SQL you must run to register the public key."
+    ),
+)
+@click.option(
+    "--key-path",
+    default="~/.snowflake/snowfort_rsa_key.p8",
+    show_default=True,
+    help="Path where the private key PEM file will be written (ignored unless --keypair is set).",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="With --keypair: print the ALTER USER SQL without generating or writing anything.",
+)
+@click.option(
+    "--snowflake-user",
+    default="",
+    help="Snowflake username for the ALTER USER statement (defaults to $SNOWFLAKE_USER or current login).",
+)
 @click.pass_context
-def bootstrap(ctx, role):
-    """Interactive setup for Audit permissions."""
+def bootstrap(ctx, role, keypair, key_path, dry_run, snowflake_user):
+    """Interactive setup for Audit permissions.
+
+    With --keypair: generate RSA keypair for Snowflake key-pair auth.
+    Without --keypair: provision the AUDITOR role (requires an active connection).
+    """
     container = ctx.obj
     telemetry = container.get("TelemetryPort")
+
+    if keypair:
+        _run_keypair_bootstrap(telemetry, key_path, dry_run, snowflake_user)
+        return
 
     telemetry.step("Snowfort Audit Bootstrap: Initializing permissions...")
     connection_error_type = container.get("ConnectionErrorType")
@@ -61,6 +96,43 @@ def bootstrap(ctx, role):
         if hint:
             telemetry.error(f"Hint: {hint}")
         raise click.Abort() from e
+
+
+def _run_keypair_bootstrap(telemetry, key_path: str, dry_run: bool, snowflake_user: str) -> None:
+    """Generate RSA-2048 keypair and print the ALTER USER SQL."""
+    import os
+
+    from snowfort_audit.infrastructure.gateways.keypair_bootstrap import generate_keypair
+
+    username = snowflake_user or os.environ.get("SNOWFLAKE_USER") or os.environ.get("SNOWFLAKE_USERNAME") or ""
+    if not username:
+        username = click.prompt("Snowflake username (for ALTER USER SQL)")
+
+    if dry_run:
+        telemetry.step("[dry-run] Generating keypair in memory — no files will be written.")
+    else:
+        telemetry.step(f"Generating RSA-2048 keypair → {key_path}")
+
+    try:
+        alter_sql = generate_keypair(key_path, username=username, dry_run=dry_run)
+    except ValueError as exc:
+        telemetry.error(f"Keypair bootstrap failed: {exc}")
+        raise click.Abort() from exc
+    except ImportError as exc:
+        telemetry.error(str(exc))
+        raise click.Abort() from exc
+
+    if not dry_run:
+        telemetry.step(f"Private key written to: {key_path}  (mode 0600 — owner read/write only)")
+        telemetry.step("Set the key path in your environment:")
+        click.echo(f"  export SNOWFLAKE_PRIVATE_KEY_PATH={key_path}")
+        click.echo("  export SNOWFLAKE_AUTHENTICATOR=snowflake_jwt")
+    telemetry.step("Run this SQL in Snowsight or SnowSQL to register the public key:")
+    click.echo("")
+    click.echo(alter_sql)
+    click.echo("")
+    if dry_run:
+        telemetry.step("[dry-run] No files written. Remove --dry-run to write the private key.")
 
 
 @audit.command(name="demo-setup")
