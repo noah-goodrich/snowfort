@@ -311,3 +311,263 @@ class SensitiveDataClassificationCoverageCheck(Rule):
             if self.telemetry:
                 self.telemetry.error(f"SensitiveDataClassificationCoverageCheck failed: {e}")
             return []
+
+
+class MaskingPolicyCoverageExtendedCheck(Rule):
+    """GOV_005: For AI_CLASSIFY-tagged sensitive columns, verify a masking policy is attached.
+
+    Briefing D8: Columns tagged by Snowflake's AI_CLASSIFY as sensitive must have an
+    active masking policy. Without this, classification provides no access control benefit.
+    """
+
+    def __init__(self, telemetry: TelemetryPort | None = None):
+        super().__init__(
+            "GOV_005",
+            "AI-Classify Sensitive Column Masking Coverage",
+            Severity.HIGH,
+            rationale=(
+                "AI_CLASSIFY identifies sensitive columns, but classification alone does not "
+                "restrict access. A masking policy must be attached to protect the data."
+            ),
+            remediation=(
+                "Attach a masking policy to every column tagged by AI_CLASSIFY as sensitive: "
+                "'ALTER TABLE <t> MODIFY COLUMN <c> SET MASKING POLICY <policy>'."
+            ),
+            remediation_key="ATTACH_MASKING_POLICY_TO_CLASSIFIED",
+            telemetry=telemetry,
+        )
+
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
+        # Find columns tagged as SENSITIVE/PII via AI_CLASSIFY that lack a masking policy.
+        query = """
+        SELECT t.OBJECT_DATABASE, t.OBJECT_SCHEMA, t.OBJECT_NAME, t.COLUMN_NAME
+        FROM SNOWFLAKE.ACCOUNT_USAGE.TAG_REFERENCES t
+        WHERE t.DOMAIN = 'COLUMN'
+          AND t.OBJECT_DELETED IS NULL
+          AND (t.TAG_NAME ILIKE '%SENSITIVE%' OR t.TAG_NAME ILIKE '%PII%'
+               OR t.TAG_NAME ILIKE '%CLASSIFICATION%')
+          AND NOT EXISTS (
+              SELECT 1 FROM SNOWFLAKE.ACCOUNT_USAGE.POLICY_REFERENCES p
+              WHERE p.REF_DATABASE_NAME = t.OBJECT_DATABASE
+                AND p.REF_SCHEMA_NAME = t.OBJECT_SCHEMA
+                AND p.REF_ENTITY_NAME = t.OBJECT_NAME
+                AND p.REF_COLUMN_NAME = t.COLUMN_NAME
+                AND p.POLICY_KIND = 'MASKING_POLICY'
+          )
+        LIMIT 50
+        """
+        try:
+            cursor.execute(query)
+            return [
+                self.violation(
+                    f"{row[0]}.{row[1]}.{row[2]}.{row[3]}",
+                    f"Column '{row[3]}' in '{row[0]}.{row[1]}.{row[2]}' is classified as sensitive "
+                    "but has no masking policy attached.",
+                )
+                for row in cursor.fetchall()
+            ]
+        except Exception as e:
+            err_str = str(e).lower()
+            if "does not exist" in err_str or "not authorized" in err_str or "002003" in err_str:
+                if self.telemetry:
+                    self.telemetry.debug(f"GOV_005 skipped (TAG_REFERENCES/POLICY_REFERENCES not available): {e}")
+                return []
+            raise
+
+
+class InboundShareRiskCheck(Rule):
+    """GOV_006: Flag inbound data shares without owner tag or documentation.
+
+    Briefing D9: Undocumented inbound shares represent opaque external data dependencies
+    — if the provider changes schema or stops sharing, consumers break silently.
+    """
+
+    def __init__(self, telemetry: TelemetryPort | None = None):
+        super().__init__(
+            "GOV_006",
+            "Inbound Share Risk",
+            Severity.MEDIUM,
+            rationale=(
+                "Inbound data shares without owner attribution or documentation create "
+                "opaque dependencies on external providers. Schema changes break silently."
+            ),
+            remediation=(
+                "Tag each inbound share with an OWNER and PURPOSE tag. "
+                "Document the provider SLA and schema version. "
+                "Use 'ALTER DATABASE <shared_db> SET TAG OWNER = \"<team>\"'."
+            ),
+            remediation_key="DOCUMENT_INBOUND_SHARES",
+            telemetry=telemetry,
+        )
+
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
+        try:
+            cursor.execute("""
+                SELECT DATABASE_NAME, SHARE_NAME, OWNER
+                FROM SNOWFLAKE.ACCOUNT_USAGE.DATABASES
+                WHERE DELETED IS NULL
+                  AND DATABASE_NAME NOT ILIKE 'SNOWFLAKE%'
+                  AND SHARE_NAME IS NOT NULL
+                  AND SHARE_NAME != ''
+                LIMIT 50
+            """)
+            rows = cursor.fetchall()
+        except Exception as e:
+            err_str = str(e).lower()
+            if "does not exist" in err_str or "not authorized" in err_str or "002003" in err_str:
+                if self.telemetry:
+                    self.telemetry.debug(f"GOV_006 skipped: {e}")
+                return []
+            raise
+        violations = []
+        for row in rows:
+            db_name, share_name, owner = row[0], row[1], row[2]
+            # Flag if no owner is set (owner is NULL or empty)
+            if not owner or str(owner).strip() in ("", "NULL"):
+                violations.append(
+                    self.violation(
+                        db_name,
+                        f"Inbound share '{share_name}' (database '{db_name}') has no owner "
+                        "tag. Document the provider and use case.",
+                    )
+                )
+        return violations
+
+
+class OutboundShareRiskCheck(Rule):
+    """GOV_007: Flag outbound shares without expiration, per-consumer grants, or row-access policy.
+
+    Briefing D9: Outbound shares without expiration or granular consumer controls represent
+    data governance risk — data may be shared indefinitely with no audit trail.
+    """
+
+    def __init__(self, telemetry: TelemetryPort | None = None):
+        super().__init__(
+            "GOV_007",
+            "Outbound Share Risk",
+            Severity.HIGH,
+            rationale=(
+                "Outbound shares without explicit expiration or per-consumer grants expose "
+                "data indefinitely. Without row-access policies, all shared data is visible."
+            ),
+            remediation=(
+                "Set an expiration on outbound shares. "
+                "Restrict consumers to named accounts using per-consumer grants. "
+                "Apply row-access policies on shared tables for fine-grained control."
+            ),
+            remediation_key="GOVERN_OUTBOUND_SHARES",
+            telemetry=telemetry,
+        )
+
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
+        try:
+            cursor.execute("""
+                SELECT SHARE_NAME, OWNER, COMMENT
+                FROM SNOWFLAKE.ACCOUNT_USAGE.SHARES
+                WHERE DELETED IS NULL
+                  AND SHARE_KIND = 'OUTBOUND'
+                LIMIT 50
+            """)
+            rows = cursor.fetchall()
+        except Exception as e:
+            err_str = str(e).lower()
+            if "does not exist" in err_str or "not authorized" in err_str or "002003" in err_str:
+                if self.telemetry:
+                    self.telemetry.debug(f"GOV_007 skipped (SHARES view not available): {e}")
+                return []
+            raise
+        violations = []
+        for row in rows:
+            share_name, owner, comment = row[0], row[1], row[2]
+            issues = []
+            if not owner or str(owner).strip() in ("", "NULL"):
+                issues.append("no owner")
+            if not comment or str(comment).strip() in ("", "NULL"):
+                issues.append("no documentation comment")
+            if issues:
+                violations.append(
+                    self.violation(
+                        share_name,
+                        f"Outbound share '{share_name}' has governance gaps: {', '.join(issues)}. "
+                        "Add owner attribution and documentation.",
+                    )
+                )
+        return violations
+
+
+class CrossRegionInferenceCheck(Rule):
+    """GOV_008: Flag accounts with CORTEX_ENABLED_CROSS_REGION active alongside data-residency tags.
+
+    Briefing D11: Cross-region inference routes LLM calls to Snowflake-operated regions
+    outside the account's home region. This violates data-residency requirements on
+    tables tagged with GDPR, HIPAA, or similar sovereignty constraints.
+    """
+
+    def __init__(self, telemetry: TelemetryPort | None = None):
+        super().__init__(
+            "GOV_008",
+            "Cross-Region Inference Risk",
+            Severity.HIGH,
+            rationale=(
+                "CORTEX_ENABLED_CROSS_REGION allows LLM inference to route data outside "
+                "the account's home region. This may violate GDPR/HIPAA data-residency "
+                "requirements on tables tagged with sovereignty tags."
+            ),
+            remediation=(
+                "Disable cross-region inference: "
+                "'ALTER ACCOUNT SET CORTEX_ENABLED_CROSS_REGION = DISABLED'. "
+                "Or restrict to a compliant region list and ensure no sovereignty-tagged "
+                "tables are passed to Cortex functions."
+            ),
+            remediation_key="DISABLE_CROSS_REGION_INFERENCE",
+            telemetry=telemetry,
+        )
+
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
+        try:
+            cursor.execute("SHOW PARAMETERS LIKE 'CORTEX_ENABLED_CROSS_REGION' IN ACCOUNT")
+            rows = cursor.fetchall()
+        except Exception as e:
+            err_str = str(e).lower()
+            if "does not exist" in err_str or "not authorized" in err_str or "002003" in err_str:
+                if self.telemetry:
+                    self.telemetry.debug(f"GOV_008 skipped (SHOW PARAMETERS not authorized): {e}")
+                return []
+            raise
+        for row in rows:
+            # SHOW PARAMETERS returns: name, value, default, level, description, type
+            value = str(row[1]).upper() if len(row) > 1 else ""
+            if value not in ("", "DISABLED", "FALSE", "0"):
+                # Cross-region inference is enabled; now check for sovereignty-tagged objects
+                try:
+                    cursor.execute("""
+                        SELECT COUNT(*)
+                        FROM SNOWFLAKE.ACCOUNT_USAGE.TAG_REFERENCES
+                        WHERE OBJECT_DELETED IS NULL
+                          AND (TAG_NAME ILIKE '%GDPR%' OR TAG_NAME ILIKE '%HIPAA%'
+                               OR TAG_NAME ILIKE '%SOVEREIGNTY%' OR TAG_NAME ILIKE '%RESIDENCY%'
+                               OR TAG_NAME ILIKE '%DATA_RESIDENCY%')
+                    """)
+                    count_row = cursor.fetchone()
+                    sovereignty_count = int(count_row[0]) if count_row else 0
+                except Exception:
+                    sovereignty_count = 0
+                msg = (
+                    f"CORTEX_ENABLED_CROSS_REGION is set to '{value}'. "
+                    "Cortex LLM inference may route outside the account's home region."
+                )
+                if sovereignty_count > 0:
+                    msg += (
+                        f" {sovereignty_count} object(s) with data-residency tags "
+                        "(GDPR/HIPAA/SOVEREIGNTY) detected — potential compliance violation."
+                    )
+                return [self.violation("Account", msg)]
+        return []

@@ -491,3 +491,132 @@ class PipelineObjectReplicationCheck(Rule):
                 else:
                     self.telemetry.error(f"PipelineObjectReplicationCheck failed: {e}")
             return []
+
+
+class DynamicTableRefreshLagCheck(Rule):
+    """REL_009: Flag Dynamic Tables whose actual refresh lag exceeds their target lag.
+
+    Briefing: Dynamic Tables with persistent lag mean downstream consumers are reading
+    stale data, potentially breaking SLAs that depend on near-real-time freshness.
+    """
+
+    def __init__(self, telemetry: TelemetryPort | None = None):
+        super().__init__(
+            "REL_009",
+            "Dynamic Table Refresh Lag",
+            Severity.MEDIUM,
+            rationale=(
+                "A Dynamic Table falling behind its target refresh lag means downstream "
+                "consumers see stale data. Persistent lag indicates insufficient warehouse "
+                "capacity or blocking refresh chains."
+            ),
+            remediation=(
+                "Increase the warehouse size for the Dynamic Table's refresh task, or "
+                "reduce the table's complexity / dependency chain depth. "
+                "Review DYNAMIC_TABLE_REFRESH_HISTORY for errors."
+            ),
+            remediation_key="FIX_DT_LAG",
+            telemetry=telemetry,
+        )
+
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
+        query = """
+        SELECT
+            TABLE_CATALOG,
+            TABLE_SCHEMA,
+            NAME,
+            TARGET_LAG_SEC,
+            ACTUAL_LAG_SEC
+        FROM SNOWFLAKE.ACCOUNT_USAGE.DYNAMIC_TABLE_REFRESH_HISTORY
+        WHERE REFRESH_END_TIME >= DATEADD('hour', -24, CURRENT_TIMESTAMP())
+          AND ACTUAL_LAG_SEC IS NOT NULL
+          AND TARGET_LAG_SEC IS NOT NULL
+          AND ACTUAL_LAG_SEC > TARGET_LAG_SEC * 1.5
+        LIMIT 50
+        """
+        try:
+            cursor.execute(query)
+            violations = []
+            for row in cursor.fetchall():
+                db, schema, name, target, actual = row[0], row[1], row[2], row[3], row[4]
+                fq = f"{db}.{schema}.{name}"
+                violations.append(
+                    self.violation(
+                        fq,
+                        f"Dynamic Table '{fq}' actual lag {actual:.0f}s exceeds "
+                        f"target lag {target:.0f}s (>{target * 1.5:.0f}s threshold).",
+                    )
+                )
+            return violations
+        except Exception as e:
+            err_str = str(e).lower()
+            if "does not exist" in err_str or "not authorized" in err_str or "002003" in err_str:
+                if self.telemetry:
+                    self.telemetry.debug(f"REL_009 skipped (DYNAMIC_TABLE_REFRESH_HISTORY not available): {e}")
+                return []
+            raise
+
+
+class DynamicTableFailureDetectionCheck(Rule):
+    """REL_010: Flag Dynamic Tables in FAILED state within the last 24 hours.
+
+    Briefing: A FAILED Dynamic Table stops refreshing entirely, causing all downstream
+    consumers to receive permanently stale data with no visible error to end users.
+    """
+
+    def __init__(self, telemetry: TelemetryPort | None = None):
+        super().__init__(
+            "REL_010",
+            "Dynamic Table Failure Detection",
+            Severity.HIGH,
+            rationale=(
+                "A Dynamic Table with STATE='FAILED' has stopped refreshing. "
+                "Downstream consumers receive permanently stale data silently."
+            ),
+            remediation=(
+                "Investigate failure via DYNAMIC_TABLE_REFRESH_HISTORY. "
+                "Check for upstream table errors, schema changes, or resource exhaustion. "
+                "Resume with: ALTER DYNAMIC TABLE <name> RESUME."
+            ),
+            remediation_key="RESUME_FAILED_DT",
+            telemetry=telemetry,
+        )
+
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
+        query = """
+        SELECT DISTINCT
+            TABLE_CATALOG,
+            TABLE_SCHEMA,
+            NAME,
+            STATE,
+            ERROR_MESSAGE
+        FROM SNOWFLAKE.ACCOUNT_USAGE.DYNAMIC_TABLE_REFRESH_HISTORY
+        WHERE REFRESH_END_TIME >= DATEADD('hour', -24, CURRENT_TIMESTAMP())
+          AND STATE = 'FAILED'
+        LIMIT 50
+        """
+        try:
+            cursor.execute(query)
+            violations = []
+            for row in cursor.fetchall():
+                db, schema, name, state = row[0], row[1], row[2], row[3]
+                err_msg = row[4] or "No error details available."
+                fq = f"{db}.{schema}.{name}"
+                violations.append(
+                    self.violation(
+                        fq,
+                        f"Dynamic Table '{fq}' is in {state} state. Error: {str(err_msg)[:120]}",
+                    )
+                )
+            return violations
+        except Exception as e:
+            err_str = str(e).lower()
+            if "does not exist" in err_str or "not authorized" in err_str or "002003" in err_str:
+                if self.telemetry:
+                    self.telemetry.debug(f"REL_010 skipped (DYNAMIC_TABLE_REFRESH_HISTORY not available): {e}")
+                return []
+            raise

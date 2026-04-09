@@ -41,6 +41,7 @@ from snowfort_audit.domain.scan_context import ScanContext
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_allowlisted_error():
     """Create an error that is_allowlisted_sf_error() accepts (errno=2003)."""
     err = Exception("Object not found")
@@ -72,6 +73,7 @@ def _cursor_empty():
 # COST_016 CortexAIFunctionCreditBudgetCheck
 # ---------------------------------------------------------------------------
 
+
 class TestCortexAIFunctionCreditBudgetCheck:
     def test_none_scan_context_returns_empty(self):
         rule = CortexAIFunctionCreditBudgetCheck()
@@ -93,9 +95,7 @@ class TestCortexAIFunctionCreditBudgetCheck:
         conv.thresholds.cortex.daily_credit_soft_limit = 30.0
         rule = CortexAIFunctionCreditBudgetCheck(conventions=conv)
         # Row layout: (USAGE_TIME, user, credits, ...)
-        rows = (
-            ("2026-04-01T00:00:00", "USER1", 60.0),
-        )
+        rows = (("2026-04-01T00:00:00", "USER1", 60.0),)
         ctx = _make_ctx_with_cached(rule.VIEW, rows)
         result = rule.check_online(_cursor_empty(), scan_context=ctx)
         assert len(result) == 1
@@ -121,6 +121,7 @@ class TestCortexAIFunctionCreditBudgetCheck:
 # ---------------------------------------------------------------------------
 # COST_017 CortexAIFunctionModelAllowlistCheck
 # ---------------------------------------------------------------------------
+
 
 class TestCortexAIFunctionModelAllowlistCheck:
     def test_none_scan_context_returns_empty(self):
@@ -165,6 +166,7 @@ class TestCortexAIFunctionModelAllowlistCheck:
 # COST_018 CortexAIFunctionQueryTagCoverageCheck
 # ---------------------------------------------------------------------------
 
+
 class TestCortexAIFunctionQueryTagCoverageCheck:
     def test_none_scan_context_returns_empty(self):
         rule = CortexAIFunctionQueryTagCoverageCheck()
@@ -208,6 +210,7 @@ class TestCortexAIFunctionQueryTagCoverageCheck:
 # COST_019 CortexAIFunctionPerUserSpendCheck
 # ---------------------------------------------------------------------------
 
+
 class TestCortexAIFunctionPerUserSpendCheck:
     def test_none_scan_context_returns_empty(self):
         assert CortexAIFunctionPerUserSpendCheck().check_online(_cursor_empty(), scan_context=None) == []
@@ -246,6 +249,7 @@ class TestCortexAIFunctionPerUserSpendCheck:
 # COST_020 CortexAISQLAdoptionCheck
 # ---------------------------------------------------------------------------
 
+
 class TestCortexAISQLAdoptionCheck:
     def test_none_scan_context_returns_empty(self):
         assert CortexAISQLAdoptionCheck().check_online(_cursor_empty(), scan_context=None) == []
@@ -276,6 +280,7 @@ class TestCortexAISQLAdoptionCheck:
 # COST_021 CortexCodeCLIPerUserLimitCheck
 # ---------------------------------------------------------------------------
 
+
 class TestCortexCodeCLIPerUserLimitCheck:
     def test_none_scan_context_returns_empty(self):
         assert CortexCodeCLIPerUserLimitCheck().check_online(_cursor_empty(), scan_context=None) == []
@@ -283,10 +288,7 @@ class TestCortexCodeCLIPerUserLimitCheck:
     def test_user_near_limit_3_days_flagged(self):
         rule = CortexCodeCLIPerUserLimitCheck()
         # usage 9.0 / limit 10.0 = 90% > 80%, 3 days
-        rows = tuple(
-            (f"2026-04-0{i}", "NOAH", 9.0, 10.0)
-            for i in range(1, 4)
-        )
+        rows = tuple((f"2026-04-0{i}", "NOAH", 9.0, 10.0) for i in range(1, 4))
         ctx = _make_ctx_with_cached(rule.VIEW, rows)
         result = rule.check_online(_cursor_empty(), scan_context=ctx)
         assert len(result) == 1
@@ -294,10 +296,7 @@ class TestCortexCodeCLIPerUserLimitCheck:
 
     def test_under_limit_no_violation(self):
         rule = CortexCodeCLIPerUserLimitCheck()
-        rows = tuple(
-            (f"2026-04-0{i}", "NOAH", 1.0, 10.0)
-            for i in range(1, 5)
-        )
+        rows = tuple((f"2026-04-0{i}", "NOAH", 1.0, 10.0) for i in range(1, 5))
         ctx = _make_ctx_with_cached(rule.VIEW, rows)
         assert rule.check_online(_cursor_empty(), scan_context=ctx) == []
 
@@ -311,6 +310,7 @@ class TestCortexCodeCLIPerUserLimitCheck:
 # ---------------------------------------------------------------------------
 # COST_022 CortexCodeCLIZombieUsageCheck
 # ---------------------------------------------------------------------------
+
 
 class TestCortexCodeCLIZombieUsageCheck:
     def test_none_scan_context_returns_empty(self):
@@ -343,6 +343,7 @@ class TestCortexCodeCLIZombieUsageCheck:
 # ---------------------------------------------------------------------------
 # COST_023 CortexCodeCLICreditSpikeCheck
 # ---------------------------------------------------------------------------
+
 
 class TestCortexCodeCLICreditSpikeCheck:
     def test_none_scan_context_returns_empty(self):
@@ -380,6 +381,7 @@ class TestCortexCodeCLICreditSpikeCheck:
 # COST_024 CortexAgentBudgetEnforcementCheck
 # ---------------------------------------------------------------------------
 
+
 class TestCortexAgentBudgetEnforcementCheck:
     def test_none_scan_context_returns_empty(self):
         assert CortexAgentBudgetEnforcementCheck().check_online(_cursor_empty(), scan_context=None) == []
@@ -415,6 +417,7 @@ class TestCortexAgentBudgetEnforcementCheck:
 # COST_025 CortexAgentSpendCapCheck
 # ---------------------------------------------------------------------------
 
+
 class TestCortexAgentSpendCapCheck:
     def test_none_scan_context_returns_empty(self):
         assert CortexAgentSpendCapCheck().check_online(_cursor_empty(), scan_context=None) == []
@@ -442,6 +445,7 @@ class TestCortexAgentSpendCapCheck:
 # COST_026 CortexAgentTagCoverageCheck
 # ---------------------------------------------------------------------------
 
+
 class TestCortexAgentTagCoverageCheck:
     def test_none_scan_context_returns_empty(self):
         assert CortexAgentTagCoverageCheck().check_online(_cursor_empty(), scan_context=None) == []
@@ -464,6 +468,7 @@ class TestCortexAgentTagCoverageCheck:
 # ---------------------------------------------------------------------------
 # COST_027 SnowflakeIntelligenceDailySpendCheck
 # ---------------------------------------------------------------------------
+
 
 class TestSnowflakeIntelligenceDailySpendCheck:
     def test_none_scan_context_returns_empty(self):
@@ -492,6 +497,7 @@ class TestSnowflakeIntelligenceDailySpendCheck:
 # COST_028 SnowflakeIntelligenceGovernanceCheck
 # ---------------------------------------------------------------------------
 
+
 class TestSnowflakeIntelligenceGovernanceCheck:
     def test_none_scan_context_returns_empty(self):
         assert SnowflakeIntelligenceGovernanceCheck().check_online(_cursor_empty(), scan_context=None) == []
@@ -514,6 +520,7 @@ class TestSnowflakeIntelligenceGovernanceCheck:
 # ---------------------------------------------------------------------------
 # COST_029 CortexSearchConsumptionBreakdownCheck
 # ---------------------------------------------------------------------------
+
 
 class TestCortexSearchConsumptionBreakdownCheck:
     def test_none_scan_context_returns_empty(self):
@@ -541,6 +548,7 @@ class TestCortexSearchConsumptionBreakdownCheck:
 # ---------------------------------------------------------------------------
 # COST_030 CortexSearchZombieServiceCheck
 # ---------------------------------------------------------------------------
+
 
 class TestCortexSearchZombieServiceCheck:
     def test_none_scan_context_returns_empty(self):
@@ -573,6 +581,7 @@ class TestCortexSearchZombieServiceCheck:
 # COST_031 CortexAnalystPerUserQuotaCheck
 # ---------------------------------------------------------------------------
 
+
 class TestCortexAnalystPerUserQuotaCheck:
     def test_none_scan_context_returns_empty(self):
         assert CortexAnalystPerUserQuotaCheck().check_online(_cursor_empty(), scan_context=None) == []
@@ -599,6 +608,7 @@ class TestCortexAnalystPerUserQuotaCheck:
 # ---------------------------------------------------------------------------
 # COST_032 CortexAnalystEnabledWithoutBudgetCheck
 # ---------------------------------------------------------------------------
+
 
 class TestCortexAnalystEnabledWithoutBudgetCheck:
     def test_none_scan_context_returns_empty(self):
@@ -633,6 +643,7 @@ class TestCortexAnalystEnabledWithoutBudgetCheck:
 # COST_033 CortexDocumentProcessingSpendCheck
 # ---------------------------------------------------------------------------
 
+
 class TestCortexDocumentProcessingSpendCheck:
     def test_none_scan_context_returns_empty(self):
         assert CortexDocumentProcessingSpendCheck().check_online(_cursor_empty(), scan_context=None) == []
@@ -665,6 +676,7 @@ class TestCortexDocumentProcessingSpendCheck:
 # ---------------------------------------------------------------------------
 # get_cortex_rules() factory
 # ---------------------------------------------------------------------------
+
 
 def test_get_cortex_rules_returns_18_rules():
     rules = get_cortex_rules()

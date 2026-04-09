@@ -110,9 +110,12 @@ def _run_online_scan(
     include_snowfort_db: bool = False,
     rule_ids: list[str] | None = None,
     profile: bool = False,
+    permifrost_spec: str | None = None,
 ) -> tuple:
     if rule_ids:
         container.register_singleton("ScanRuleIds", frozenset(r.upper() for r in rule_ids))
+    if permifrost_spec:
+        container.register_singleton("PermifrostSpecPath", permifrost_spec)
     options = get_connection_options(
         container,
         interactive=True,
@@ -242,6 +245,13 @@ def _log_scan_preamble(telemetry, quiet: bool, path: str, rule_ids: tuple, corte
     is_flag=True,
     help="Do not launch the interactive TUI after the scan (default: launch TUI when running in a terminal).",
 )
+@click.option(
+    "--permifrost-spec",
+    "permifrost_spec",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Path to a Permifrost YAML spec for OPS_014 drift detection (opt-in).",
+)
 @click.pass_context
 def scan(
     ctx,
@@ -264,6 +274,7 @@ def scan(
     rules_dir: str,
     path: str,
     billing_model: str | None,
+    permifrost_spec: str | None,
 ):
     """Run the snowfort-audit WAF Scorecard. Launches the interactive TUI by default when run in a terminal; use --no-tui for report-only output."""
     project_root = Path(path).resolve()
@@ -302,6 +313,7 @@ def scan(
                     include_snowfort_db,
                     rule_ids=rule_filter,
                     profile=profile,
+                    permifrost_spec=permifrost_spec,
                 )
                 target_name = "Snowflake account"
                 try:

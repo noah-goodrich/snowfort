@@ -78,8 +78,8 @@ def test_mandatory_tagging_severity_and_exclusion():
     from snowfort_audit.domain.scan_context import ScanContext
 
     warehouses = (
-        ("ANALYTICS_WH",),           # should be flagged (no tags)
-        ("COMPUTE_SERVICE_WH_ETL",), # excluded by default pattern
+        ("ANALYTICS_WH",),  # should be flagged (no tags)
+        ("COMPUTE_SERVICE_WH_ETL",),  # excluded by default pattern
     )
     ctx = ScanContext()
     object.__setattr__(ctx, "warehouses", warehouses)

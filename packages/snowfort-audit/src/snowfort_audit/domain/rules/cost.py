@@ -30,7 +30,7 @@ def _name_matches_pattern(name: str, pattern: str) -> bool:
 class AggressiveAutoSuspendCheck(Rule):
     """COST_001: Flag Warehouses with auto_suspend > convention (default 30s unless performance benefit)."""
 
-    AUTO_SUSPEND_LIMIT_SECONDS = 30   # fallback when conventions not injected
+    AUTO_SUSPEND_LIMIT_SECONDS = 30  # fallback when conventions not injected
     AUTO_SUSPEND_MAX_SECONDS = 3600  # fallback hard cap when conventions not injected
 
     def __init__(
@@ -94,7 +94,9 @@ class AggressiveAutoSuspendCheck(Rule):
             if scan_context is not None and scan_context.warehouses is not None:
                 cols = scan_context.warehouses_cols
                 name_idx = cols.get("name", 0)
-                warehouses = [wh for wh in scan_context.warehouses if not is_excluded_db_or_warehouse_name(wh[name_idx])]
+                warehouses = [
+                    wh for wh in scan_context.warehouses if not is_excluded_db_or_warehouse_name(wh[name_idx])
+                ]
             else:
                 cursor.execute("SHOW WAREHOUSES")
                 rows_raw = cursor.fetchall()
@@ -120,7 +122,11 @@ class AggressiveAutoSuspendCheck(Rule):
                         env_tags[obj_name] = tags["ENVIRONMENT"].upper()
             elif scan_context is not None and scan_context.tag_refs is not None:
                 for row in scan_context.tag_refs:
-                    if str(row[TR_DOMAIN]).upper() == "WAREHOUSE" and str(row[TR_TAG_NAME]).upper() == "ENVIRONMENT" and row[TR_TAG_VALUE]:
+                    if (
+                        str(row[TR_DOMAIN]).upper() == "WAREHOUSE"
+                        and str(row[TR_TAG_NAME]).upper() == "ENVIRONMENT"
+                        and row[TR_TAG_VALUE]
+                    ):
                         env_tags[str(row[TR_OBJECT_NAME]).upper()] = str(row[TR_TAG_VALUE]).upper()
             else:
                 tag_query = """
@@ -220,7 +226,9 @@ class ZombieWarehouseCheck(Rule):
             # Get all warehouses to compare (exclude system/tool)
             if scan_context is not None and scan_context.warehouses is not None:
                 _wh_name_idx = scan_context.warehouses_cols.get("name", 0)
-                all_warehouses = [wh for wh in scan_context.warehouses if not is_excluded_db_or_warehouse_name(wh[_wh_name_idx])]
+                all_warehouses = [
+                    wh for wh in scan_context.warehouses if not is_excluded_db_or_warehouse_name(wh[_wh_name_idx])
+                ]
             else:
                 cursor.execute("SHOW WAREHOUSES")
                 _wh_rows = cursor.fetchall()
@@ -464,9 +472,7 @@ class HighChurnPermanentTableCheck(Rule):
             violations = []
             for row in cursor.fetchall():
                 table_name: str = str(row[0]).upper()
-                if exclude_patterns and any(
-                    _name_matches_pattern(table_name, pat) for pat in exclude_patterns
-                ):
+                if exclude_patterns and any(_name_matches_pattern(table_name, pat) for pat in exclude_patterns):
                     continue
                 violations.append(
                     Violation(
@@ -512,7 +518,9 @@ class PerWarehouseStatementTimeoutCheck(Rule):
             if scan_context is not None and scan_context.warehouses is not None:
                 cols = scan_context.warehouses_cols
                 name_idx = cols.get("name", 0)
-                warehouses = [wh for wh in scan_context.warehouses if not is_excluded_db_or_warehouse_name(wh[name_idx])]
+                warehouses = [
+                    wh for wh in scan_context.warehouses if not is_excluded_db_or_warehouse_name(wh[name_idx])
+                ]
             else:
                 cursor.execute("SHOW WAREHOUSES")
                 _raw = cursor.fetchall()

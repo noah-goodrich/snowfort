@@ -1,0 +1,204 @@
+WAF SNOWFORT VISUAL BIBLE
+=========================
+For use with Gemini Gem: Snowflake Series - WAF
+Last updated: March 2026
+
+IMPORTANT: Every image prompt should begin with "Use Attached Image w/ Annotations"
+and include an annotated group reference image of the main characters.
+
+
+================================================================
+1. GLOBAL STYLE & ATMOSPHERE
+================================================================
+
+Style: 3D animation, playful, childlike, Pixar-adjacent. Rounded forms, warm lighting. NOT photorealistic. NOT corporate. Think "Pixar short film about a family building a snow fort."
+
+Atmosphere: Serene winter. Pre-dawn blue-white sky with glowing stars, OR golden hour with warm orange light on the snow. Either works depending on mood needed.
+
+Background: Massive snow-covered mountain peaks (white snow with blue-grey rock) in the distance. A cozy alpine village with timber-framed cabins, heavy snow on roofs, warm amber/yellow light from windows. Soft, undisturbed white snow on the ground.
+
+Lighting: Warm and diffused. No harsh shadows. Gentle glow from holographic elements. Cabin window light provides secondary warmth.
+
+NEVER use the word "snowflake" in any prompt or caption.
+
+
+================================================================
+2. THE SNOWFORT
+================================================================
+
+Shape: Roughly hexagonal when viewed from above. Six sides. One side (facing the viewer in most compositions) is OPEN as the gate entrance. Five remaining sides are the walls.
+
+Scale: Kid-scale. Roughly 4 feet tall at its highest point (child shoulder height). The gate opening is about 3 feet tall (a 3-year-old walks through without ducking, Mom would crouch).
+
+Construction: Built from ROUGHLY hexagonal snow blocks. "Roughly" is critical. These are suggestions of hexagons, not perfect geometric shapes. Hand-packed, organic, imperfect. Some blocks are slightly larger or smaller. Some fit tightly, others have visible gaps packed with loose snow. Edges are rounded and soft, not crisp.
+
+Walls: The top edge is UNEVEN and slightly rounded. NOT sharp castle battlements. NOT military crenellations. The wall height varies naturally, slightly taller at the back center, tapering lower toward the gate sides. This should look like a family built it in their yard, not like a contractor built it.
+
+Interior: Packed-snow floor. Maybe a low snow bench along one interior wall. Room for 3-4 kids to stand inside.
+
+Visual Identity: The fort has five colored hex marker blocks embedded in the walls at roughly even intervals (one per wall segment). These blocks are the same size as regular blocks but tinted in five shades of blue, each with a white icon embossed on it. They function like inspection markers or section labels. They should be subtle, not dominating.
+
+  Marker 1 (left of gate, clockwise): Navy blue (#1a2744), white Shield icon
+  Marker 2: Royal blue (#2d5a8e), white Gear/Cog icon
+  Marker 3 (back center): Medium blue (#4a90c4), white Chain Link icon
+  Marker 4: Sky blue (#6bb8e8), white Lightning Bolt icon
+  Marker 5 (right of gate): Ice blue (#a8d8f0), white Balance Scale icon
+
+FALLBACK: If the colored marker blocks don't read well at header image scale, use five flags on crooked wooden stick poles (yard sticks, not dowel rods) planted along the top of the fort walls. Same five colors, same five icons. Fabric-like flags with soft folds, light breeze. See Section 3 for flag details.
+
+
+================================================================
+3. THE FIVE WAF FLAGS (FALLBACK OPTION)
+================================================================
+
+Use ONLY if the colored marker blocks embedded in the fort walls don't read clearly at article header scale. The flags and marker blocks serve the same purpose (identifying the five WAF pillars). Do not use both simultaneously.
+
+Five flags on rustic, slightly crooked wooden stick poles (like sticks a kid found in the yard, bark texture, not straight dowel rods). Planted along the top of the fort walls, roughly evenly spaced. Flags are simple rectangles, slightly wavy as if in a light breeze. Fabric-like with soft folds. All flags same size and shape.
+
+Flag 1 (Security & Governance): Deep navy blue (#1a2744). White outline Shield icon centered.
+Flag 2 (Operational Excellence): Royal/medium-dark blue (#2d5a8e). White outline Gear/Cog icon centered.
+Flag 3 (Reliability): Medium blue (#4a90c4). White outline Chain Link (two interlocked links) icon centered.
+Flag 4 (Performance): Sky blue (#6bb8e8). White outline Lightning Bolt icon centered.
+Flag 5 (Cost Optimization): Pale/ice blue (#a8d8f0). White outline Balance Scale icon centered.
+
+
+================================================================
+4. THE HOLOGRAPHIC BLUEPRINT
+================================================================
+
+This appears in the Overview article and is referenced in other scenes.
+
+What it is: A flat, glowing holographic image projected onto a surface (usually a tree stump). It looks like a glowing blue light drawing, NOT a floating 3D object, NOT a paper drawing, NOT a corporate presentation.
+
+Feel: Quick, hand-drawn quality. Like Mom sketched the plan in glowing light. Rough lines, not perfectly straight. This is a family's weekend project plan, not an engineering schematic.
+
+Content: A top-down outline of the hexagonal fort. One side has a gap (the gate). The five remaining wall segments are each tinted a different shade of blue (navy, royal, medium, sky, ice) with a tiny white icon at each segment's midpoint (shield, gear, chain link, lightning bolt, balance scale). The interior of the hexagon has a lighter blue glow.
+
+Projection: The blueprint is projected from the Main Robot's eyes (glowing blue light from eyes to stump surface). It should be constrained to the stump surface, slightly translucent so wood grain shows through. It should NOT extend beyond the stump edges or float into the air.
+
+
+================================================================
+5. CHARACTER: "MOM"
+================================================================
+
+Role in scenes: The architect/steward. She DECIDES, EVALUATES, INSPECTS, TEACHES. She does NOT pack snow or stack blocks. She points at blueprints, studies walls with a critical eye, counts supplies, documents, tests structural integrity. She is always in conversation with Son or directing robots.
+
+Visual Style: High-quality 3D animated rendering (Pixar/Disney style). Soft, warm, diffused lighting.
+
+Physical Appearance: Mid-30s to early-40s woman. Curvy, plus-size build with a soft, full figure. Distinctly round face with a soft jawline and warm, gentle smile.
+
+Hair: Shoulder-length, wavy/curly medium-brown hair with prominent warmer honey-toned highlights throughout.
+
+WINTER CLOTHING (for all WAF series images):
+- Warm puffy winter coat, burgundy/dark red color
+- Snow pants
+- Snow boots
+- Pink knit headband (NON-NEGOTIABLE, replaces indoor hairstyle)
+- Matching pink knit scarf
+- Matching pink gloves
+
+INDOOR CLOTHING (only if scene is indoors, unlikely for WAF series):
+- Light beige/oatmeal ribbed knit cardigan, buttoned up, three-quarter sleeves
+- Cream scoop-neck top underneath
+- Dark greyish-blue high-waisted skinny jeans
+
+
+================================================================
+6. CHARACTER: "SON" (Jamie)
+================================================================
+
+Role in scenes: The apprentice steward. He is LEARNING to decide and evaluate. He points at things and asks questions. He looks at Mom for confirmation. He inspects the robots' work. He tests the fort (standing on the lookout, looking through the gate, throwing snowballs to stress-test). He does NOT do manual labor; the robots do that.
+
+Visual Style: High-quality 3D animated rendering (Pixar/Disney style).
+
+Physical Appearance: Toddler/preschool boy (approx. 3 years old). Small, slim child build.
+
+Face: Very round, cherubic face with full rosy cheeks, large expressive hazel/light-brown eyes, joyful smile.
+
+Hair (CRITICAL): Distinctly light golden-brown to dark blonde. Voluminous, thick, soft bouncy curls reaching his ears. NOT dark brown. NOT short.
+
+WINTER CLOTHING (for all WAF series images):
+- Green/teal winter coat (puffy, kid-sized)
+- Snow pants
+- Snow boots
+- Teal knit beanie
+- Gloves
+
+INDOOR CLOTHING (only if scene is indoors):
+- Solid teal/muted green long-sleeved sweater with ribbed cuffs/hem
+- Standard blue jeans with a cuff
+- Dark canvas sneakers with white soles
+
+
+================================================================
+7. CHARACTER: "BABY" (Ceara)
+================================================================
+
+Role in scenes: Present but passive. She watches, reaches for things, plays with a spare hex block. She is carried by Mom (back carrier or hip) or sits in a sled nearby. She adds warmth and family context to the scene.
+
+Visual Style: High-quality 3D animated rendering (Pixar/Disney style).
+
+Physical Appearance: Infant/older baby (sitting up age). Soft, round, chubby build. Very round face with full rosy cheeks, large bright blue eyes.
+
+Hair: Short, fine, curly. Specifically strawberry-blonde (light reddish-gold and blonde mix), NOT bright red.
+
+Signature Accessory (CRITICAL): Small pink bow clipped into hair on the left side of her head. Always present.
+
+WINTER CLOTHING (for all WAF series images):
+- Pink snowsuit (one-piece or matching set)
+- Pink winter hat (bow still visible)
+- Tiny mittens
+
+INDOOR CLOTHING (only if scene is indoors):
+- Light pink two-piece set (top and pants) with tiny white polka dots and ruffled trim
+- Barefoot
+- Pink bow in hair
+
+
+================================================================
+8. CHARACTER: "THE ROBOT" (Main)
+================================================================
+
+Role in scenes: The primary builder AND the projector. It projects holographic blueprints from its eyes. It builds (packs snow, stacks blocks) when directed. In inspection scenes, it walks the fort perimeter projecting scan beams or checkmark holograms. It is capable and helpful but WAITS FOR DIRECTION from Mom or Son before acting.
+
+Visual Style: High-quality 3D animated rendering. Sleek, clean, cute.
+
+Proportions: Exaggerated "cute" proportions. Very large spherical head on a small body. Toddler-sized overall.
+
+Materials: High-gloss polished white outer shell. Matte metallic grey joints/hands.
+
+Head: Large, round. Glowing cyan digital eyes with concentric rings. Small subtle smile groove. Eyes project blue holographic light when showing blueprints.
+
+Body: Rounded white chest plate with prominent glowing cyan central square. Glowing cyan rings on arms and legs.
+
+
+================================================================
+9. CHARACTERS: "SMALLER ROBOTS" (Worker Bots)
+================================================================
+
+Role in scenes: Manual labor. They pack snow, stack hex blocks, carry materials. They are the hands. They pause and wait when no instructions have been given. 2-3 of them in most scenes, positioned on the sides or in the background.
+
+Visual Style: Same as Main Robot but smaller (maybe knee-height to Son). Simpler design, fewer glowing details. White with grey joints. Friendly but clearly worker-class compared to the Main Robot.
+
+
+================================================================
+10. VISUAL STORYTELLING RULES
+================================================================
+
+HUMANS DECIDE, ROBOTS BUILD.
+- Mom and Son are NEVER holding blocks or packing snow.
+- Mom and Son are ALWAYS pointing, studying, counting, testing, discussing, inspecting, documenting, or teaching.
+- Robots are ALWAYS building, carrying, projecting, scanning, or waiting for instructions.
+- This division is the core visual thesis of the series: humans provide intent and judgment, machines provide labor and speed.
+
+PROGRESSION:
+- The fort grows across the series from empty snow to completed structure.
+- Each article header shows more of the fort built than the previous one.
+- The characters and setting remain consistent throughout.
+
+ROUGHNESS IS INTENTIONAL:
+- Hex blocks are rough, not perfect.
+- Blueprints look hand-sketched in light, not corporate.
+- Fort walls are uneven, organic, hand-packed.
+- Flag poles are crooked yard sticks, not straight dowels.
+- Everything should feel like a family's weekend project, not a product demo.

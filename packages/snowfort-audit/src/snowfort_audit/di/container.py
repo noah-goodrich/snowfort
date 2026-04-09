@@ -26,6 +26,10 @@ class AuditContainer(BaseContainer):
             custom_dir = self.get("CustomRulesDir")
         except ValueError:
             custom_dir = None
+        try:
+            permifrost_spec = self.get("PermifrostSpecPath")
+        except ValueError:
+            permifrost_spec = None
         get_rules_fn = self.get("get_rules_fn")
-        rules = get_rules_fn(evaluator, telemetry, custom_dir)
+        rules = get_rules_fn(evaluator, telemetry, custom_dir, permifrost_spec_path=permifrost_spec)
         return self._filter_rules_if_scan_rule_ids(rules)

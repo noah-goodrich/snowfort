@@ -169,7 +169,13 @@ def test_zombie_user_sso_downgrade():
     ctx = ScanContext()
     object.__setattr__(ctx, "sso_enforced", True)
 
-    users = (("INACTIVE_U", datetime.now(timezone.utc) - timedelta(days=120), datetime.now(timezone.utc) - timedelta(days=200)),)
+    users = (
+        (
+            "INACTIVE_U",
+            datetime.now(timezone.utc) - timedelta(days=120),
+            datetime.now(timezone.utc) - timedelta(days=200),
+        ),
+    )
     object.__setattr__(ctx, "users", users)
     object.__setattr__(ctx, "users_cols", {"name": 0, "last_success_login": 1, "created_on": 2})
 
@@ -209,15 +215,24 @@ def test_federated_excludes_zombies_and_service():
 
     # cols: name=0, has_password=1, has_mfa=2, ext_authn_duo=3, has_rsa_public_key=4, ext_authn_uid=5, type=6
     users = (
-        ("ZOMBIE_USER", "true", "false", "false", "false", "", "PERSON"),   # zombie → excluded
-        ("SVC_BOT", "true", "false", "false", "false", "", "SERVICE"),       # service → excluded
-        ("HUMAN_USER", "true", "false", "false", "false", "", "PERSON"),     # should be flagged
+        ("ZOMBIE_USER", "true", "false", "false", "false", "", "PERSON"),  # zombie → excluded
+        ("SVC_BOT", "true", "false", "false", "false", "", "SERVICE"),  # service → excluded
+        ("HUMAN_USER", "true", "false", "false", "false", "", "PERSON"),  # should be flagged
     )
     object.__setattr__(ctx, "users", users)
-    object.__setattr__(ctx, "users_cols", {
-        "name": 0, "has_password": 1, "has_mfa": 2, "ext_authn_duo": 3,
-        "has_rsa_public_key": 4, "ext_authn_uid": 5, "type": 6,
-    })
+    object.__setattr__(
+        ctx,
+        "users_cols",
+        {
+            "name": 0,
+            "has_password": 1,
+            "has_mfa": 2,
+            "ext_authn_duo": 3,
+            "has_rsa_public_key": 4,
+            "ext_authn_uid": 5,
+            "type": 6,
+        },
+    )
 
     c = MagicMock()
     violations = FederatedAuthenticationCheck().check_online(c, scan_context=ctx)
@@ -405,7 +420,7 @@ def test_admin_role_user_counts_three_level_chain():
     Old SHOW GRANTS OF ROLE only returned 1-hop direct grantees and would miss USER_B.
     """
     gtr = (
-        _make_gtr_role_grant("ROLE_R1", "ROLE_R2"),       # R1 contains R2
+        _make_gtr_role_grant("ROLE_R1", "ROLE_R2"),  # R1 contains R2
         _make_gtr_role_grant("ROLE_R2", "ACCOUNTADMIN"),  # R2 contains ACCOUNTADMIN
     )
     gtu = (_make_gtu_row("USER_B", "ROLE_R1"),)
@@ -432,9 +447,7 @@ def test_admin_role_user_counts_all_three_users():
         _make_gtu_row("USER_C", "ROLE_R3"),
     )
     result = admin_role_user_counts(gtr, gtu)
-    assert result["ACCOUNTADMIN"] == {"USER_A", "USER_B", "USER_C"}, (
-        f"Expected 3 users, got: {result['ACCOUNTADMIN']}"
-    )
+    assert result["ACCOUNTADMIN"] == {"USER_A", "USER_B", "USER_C"}, f"Expected 3 users, got: {result['ACCOUNTADMIN']}"
 
 
 def test_admin_exposure_check_online_with_scan_context():

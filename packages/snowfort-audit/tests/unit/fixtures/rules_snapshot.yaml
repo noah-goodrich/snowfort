@@ -41,6 +41,10 @@ GOV_003:
   resource: Account
   severity: CRITICAL
 GOV_004: []
+GOV_005: []
+GOV_006: []
+GOV_007: []
+GOV_008: []
 OPS_001:
 - message: Object has ZERO tags. Governance failure.
   resource: Database 'MY_APP_DB'
@@ -79,6 +83,8 @@ OPS_011:
   resource: Account
   severity: LOW
 OPS_012: []
+OPS_013: []
+OPS_014: []
 OP_001:
 - message: No Resource Monitors defined in account.
   resource: Account
@@ -112,6 +118,8 @@ REL_005: []
 REL_006: []
 REL_007: []
 REL_008: []
+REL_009: []
+REL_010: []
 SEC_001:
 - message: 'Too few ACCOUNTADMINs: only 0 detected. Recommend at least 2 for redundancy.'
   resource: Account

@@ -46,6 +46,7 @@ CORTEX_WINDOW_DAYS = 30
 # Fetcher factory
 # ---------------------------------------------------------------------------
 
+
 def _cortex_fetcher(cursor: SnowflakeCursorProtocol, view: str, time_col: str = "USAGE_TIME"):
     """Return a get_or_fetch-compatible fetcher for a CORTEX ACCOUNT_USAGE view.
 
@@ -53,6 +54,7 @@ def _cortex_fetcher(cursor: SnowflakeCursorProtocol, view: str, time_col: str = 
     The window_days parameter is forwarded by get_or_fetch but the actual
     SQL uses the module-level CORTEX_WINDOW_DAYS constant for consistency.
     """
+
     def _fetch(v: str, window_days: int) -> tuple[Row, ...]:
         cursor.execute(
             f"SELECT * FROM SNOWFLAKE.ACCOUNT_USAGE.{view}"
@@ -67,6 +69,7 @@ def _cortex_fetcher(cursor: SnowflakeCursorProtocol, view: str, time_col: str = 
 # ---------------------------------------------------------------------------
 # Base class
 # ---------------------------------------------------------------------------
+
 
 class _CortexRule(Rule):
     """Base for all Cortex usage rules.
@@ -105,9 +108,7 @@ class _CortexRule(Rule):
         except Exception as exc:
             if is_allowlisted_sf_error(exc):
                 if self.telemetry:
-                    self.telemetry.warning(
-                        f"{self.id}: {self.VIEW} not available on this account — skipping."
-                    )
+                    self.telemetry.warning(f"{self.id}: {self.VIEW} not available on this account — skipping.")
                 return ()
             raise RuleExecutionError(
                 self.id,
@@ -124,6 +125,7 @@ class _CortexRule(Rule):
 # ===========================================================================
 # D1 — Cortex AI Functions (COST_016–COST_020)
 # ===========================================================================
+
 
 class CortexAIFunctionCreditBudgetCheck(_CortexRule):
     """COST_016: Flag days where Cortex AI function credits exceed daily limits.
@@ -317,12 +319,9 @@ class CortexAIFunctionQueryTagCoverageCheck(_CortexRule):
         total = len(rows)
         # QUERY_TAG is typically last string column; check last 3 cols for None/empty
         untagged = sum(
-            1 for row in rows
-            if not any(
-                (cell is not None and str(cell).strip() != "")
-                for cell in row[-3:]
-                if isinstance(cell, str)
-            )
+            1
+            for row in rows
+            if not any((cell is not None and str(cell).strip() != "") for cell in row[-3:] if isinstance(cell, str))
         )
         if total > 0 and (untagged / total) > self._UNTAGGED_THRESHOLD:
             pct = 100 * untagged / total
@@ -462,6 +461,7 @@ class CortexAISQLAdoptionCheck(_CortexRule):
 # ===========================================================================
 # D2 — Cortex Code CLI (COST_021–COST_023)
 # ===========================================================================
+
 
 class CortexCodeCLIPerUserLimitCheck(_CortexRule):
     """COST_021: Flag Code CLI users exceeding 80% of their daily credit limit."""
@@ -644,6 +644,7 @@ class CortexCodeCLICreditSpikeCheck(_CortexRule):
 # D3 — Cortex Agents (COST_024–COST_026)
 # ===========================================================================
 
+
 class CortexAgentBudgetEnforcementCheck(_CortexRule):
     """COST_024: Flag Cortex Agents that have no Snowflake Budget attached."""
 
@@ -818,6 +819,7 @@ class CortexAgentTagCoverageCheck(_CortexRule):
 # D4 — Snowflake Intelligence (COST_027–COST_028)
 # ===========================================================================
 
+
 class SnowflakeIntelligenceDailySpendCheck(_CortexRule):
     """COST_027: Flag Snowflake Intelligence instances exceeding daily credit threshold."""
 
@@ -930,6 +932,7 @@ class SnowflakeIntelligenceGovernanceCheck(_CortexRule):
 # ===========================================================================
 # D5 — Cortex Search (COST_029–COST_030)
 # ===========================================================================
+
 
 class CortexSearchConsumptionBreakdownCheck(_CortexRule):
     """COST_029: Flag Cortex Search services with unexpectedly high total credits."""
@@ -1061,6 +1064,7 @@ class CortexSearchZombieServiceCheck(_CortexRule):
 # D6 — Cortex Analyst (COST_031–COST_032)
 # ===========================================================================
 
+
 class CortexAnalystPerUserQuotaCheck(_CortexRule):
     """COST_031: Flag users exceeding the configured Cortex Analyst request quota."""
 
@@ -1120,8 +1124,7 @@ class CortexAnalystPerUserQuotaCheck(_CortexRule):
                 violations.append(
                     self.violation(
                         user,
-                        f"User '{user}' made {count} Cortex Analyst requests on {day} "
-                        f"(daily quota: {max_daily}).",
+                        f"User '{user}' made {count} Cortex Analyst requests on {day} (daily quota: {max_daily}).",
                     )
                 )
         return violations
@@ -1163,9 +1166,7 @@ class CortexAnalystEnabledWithoutBudgetCheck(_CortexRule):
             return []  # no Analyst usage; nothing to check
         # Usage exists → check whether a Snowflake Budget is active
         try:
-            cursor.execute(
-                "SELECT COUNT(*) FROM SNOWFLAKE.ACCOUNT_USAGE.BUDGETS WHERE DELETED_ON IS NULL"
-            )
+            cursor.execute("SELECT COUNT(*) FROM SNOWFLAKE.ACCOUNT_USAGE.BUDGETS WHERE DELETED_ON IS NULL")
             result = cursor.fetchone()
             budget_count = int(result[0]) if result else 0
         except Exception as exc:
@@ -1187,6 +1188,7 @@ class CortexAnalystEnabledWithoutBudgetCheck(_CortexRule):
 # ===========================================================================
 # Bonus — Cortex Document Processing (COST_033)
 # ===========================================================================
+
 
 class CortexDocumentProcessingSpendCheck(_CortexRule):
     """COST_033: Flag high spend on Cortex document processing (AI_PARSE_DOCUMENT, AI_EXTRACT)."""
@@ -1253,6 +1255,7 @@ class CortexDocumentProcessingSpendCheck(_CortexRule):
 # ===========================================================================
 # Use ParameterizedRuleFamily for the "tag coverage" family: COST_018, COST_026, COST_028.
 # These three rules share the same "check last column for null/empty tags" logic.
+
 
 def _make_tag_coverage_check(rule_id: str, params: dict) -> _CortexRule:
     """Factory for tag-coverage rules: produces a rule that flags rows with no tag value."""
@@ -1334,6 +1337,7 @@ _TAG_COVERAGE_FACTORY_DEMO: list[Rule] = ParameterizedRuleFamily(
 # ===========================================================================
 # Exported list for rule_registry.py
 # ===========================================================================
+
 
 def get_cortex_rules(
     conventions: SnowfortConventions | None = None,

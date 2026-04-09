@@ -83,7 +83,7 @@ def test_pillar_score_monotonic():
     """Score decreases monotonically with increasing violations."""
     scores = [_pillar_score(0, 0, n, 0) for n in range(0, 50)]
     for i in range(1, len(scores)):
-        assert scores[i] <= scores[i - 1], f"Score should decrease: {scores[i-1]} -> {scores[i]}"
+        assert scores[i] <= scores[i - 1], f"Score should decrease: {scores[i - 1]} -> {scores[i]}"
 
 
 def test_pillar_score_never_negative():

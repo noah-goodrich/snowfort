@@ -57,9 +57,7 @@ def gtu_fetcher(cursor: SnowflakeCursorProtocol):
 
     def _fetch(view: str, window: int) -> tuple[Row, ...]:
         cursor.execute(
-            "SELECT GRANTEE_NAME, ROLE"
-            " FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_USERS"
-            " WHERE DELETED_ON IS NULL"
+            "SELECT GRANTEE_NAME, ROLE FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_USERS WHERE DELETED_ON IS NULL"
         )
         return tuple(cursor.fetchall())
 

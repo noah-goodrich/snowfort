@@ -87,7 +87,6 @@ def _derive_sso_and_zombies(
     return sso_enforced, zombie_logins
 
 
-
 def _class_uses_resource_name(cls: type) -> bool:
     """Cached per-class: True if cls.check_online uses its third parameter."""
     cached = _resource_name_cache.get(cls)
@@ -308,9 +307,7 @@ class OnlineScanUseCase:
         """
         try:
             # A2: fetch active databases first to skip views from dropped databases.
-            cur.execute(
-                "SELECT DATABASE_NAME FROM SNOWFLAKE.ACCOUNT_USAGE.DATABASES WHERE DELETED IS NULL"
-            )
+            cur.execute("SELECT DATABASE_NAME FROM SNOWFLAKE.ACCOUNT_USAGE.DATABASES WHERE DELETED IS NULL")
             active_dbs_upper: frozenset[str] = frozenset(str(r[0]).upper() for r in cur.fetchall())
 
             cur.execute(
@@ -359,8 +356,7 @@ class OnlineScanUseCase:
 
         if workers > 1 and n_views > 1:
             self.telemetry.info(
-                f"  Checking {n_views} views with {n_per_view} view-scoped rule(s) "
-                f"(batch DDL, {workers} workers)..."
+                f"  Checking {n_views} views with {n_per_view} view-scoped rule(s) (batch DDL, {workers} workers)..."
             )
             t0_all = time.perf_counter()
             chunk_size = max(1, n_views // workers)
@@ -404,9 +400,7 @@ class OnlineScanUseCase:
         timings: list[RuleTiming] = []
         # A2: fetch active databases to exclude views from dropped databases.
         try:
-            cur.execute(
-                "SELECT DATABASE_NAME FROM SNOWFLAKE.ACCOUNT_USAGE.DATABASES WHERE DELETED IS NULL"
-            )
+            cur.execute("SELECT DATABASE_NAME FROM SNOWFLAKE.ACCOUNT_USAGE.DATABASES WHERE DELETED IS NULL")
             active_dbs_upper: frozenset[str] = frozenset(str(r[0]).upper() for r in cur.fetchall())
         except Exception:
             active_dbs_upper = frozenset()
@@ -518,8 +512,7 @@ class OnlineScanUseCase:
             object.__setattr__(ctx, "sso_enforced", sso_enforced)
             object.__setattr__(ctx, "zombie_user_logins", frozenset(zombie_logins))
             self.telemetry.debug(
-                f"  [ScanContext] SSO detection: sso_enforced={sso_enforced}. "
-                f"Zombie logins: {len(zombie_logins)}."
+                f"  [ScanContext] SSO detection: sso_enforced={sso_enforced}. Zombie logins: {len(zombie_logins)}."
             )
 
         return ctx

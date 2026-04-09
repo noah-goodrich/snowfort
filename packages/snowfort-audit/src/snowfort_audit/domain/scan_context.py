@@ -86,6 +86,9 @@ class ScanContext:
     # Set of lowercase usernames flagged as zombie (inactive) by ZombieUserCheck during prefetch.
     # Used by FederatedAuthenticationCheck (B6) to skip users already reported elsewhere.
     zombie_user_logins: frozenset[str] | None = None
+    # Optional path to a Permifrost YAML spec for OPS_014 drift detection.
+    # None means OPS_014 is skipped (opt-in only).
+    permifrost_spec_path: str | None = None
     # Generalized prefetch cache: (view_name, window_days) -> fetched rows.
     # Populated lazily by get_or_fetch(); shared across all rules in a scan session.
     _fetch_cache: dict[tuple[str, int], tuple[Row, ...]] = field(default_factory=dict, repr=False)

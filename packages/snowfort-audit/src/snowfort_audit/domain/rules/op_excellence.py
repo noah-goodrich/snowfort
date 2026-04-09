@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import fnmatch
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from snowfort_audit.domain.conventions import SnowfortConventions
@@ -621,3 +622,177 @@ class DataMetricFunctionsCoverageCheck(Rule):
                 self.telemetry.error(f"DataMetricFunctionsCoverageCheck failed: {e}")
             return []
         return []
+
+
+class DeveloperSandboxSprawlCheck(Rule):
+    """OPS_013: Flag dropped databases still consuming Time Travel storage > 7 days.
+
+    Briefing D10: Developers routinely CREATE/DROP scratch databases, but these linger
+    in Time Travel for up to 90 days consuming storage credits invisibly.
+    """
+
+    _MAX_DAYS = 7
+
+    def __init__(self, telemetry: TelemetryPort | None = None):
+        super().__init__(
+            "OPS_013",
+            "Developer Sandbox Sprawl",
+            Severity.LOW,
+            rationale=(
+                "Dropped databases remain in Time Travel storage for up to 90 days by default. "
+                "Developer scratch databases accumulate silently and inflate storage costs."
+            ),
+            remediation=(
+                "Reduce DATA_RETENTION_TIME_IN_DAYS for dev/sandbox databases to 0 or 1. "
+                "Use a naming convention to identify sandbox databases and apply a Resource Monitor. "
+                "Drop databases with: 'DROP DATABASE <name>'."
+            ),
+            remediation_key="REDUCE_SANDBOX_RETENTION",
+            telemetry=telemetry,
+        )
+
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
+        query = f"""
+        SELECT DATABASE_NAME, DELETED, RETENTION_TIME
+        FROM SNOWFLAKE.ACCOUNT_USAGE.DATABASES
+        WHERE DELETED IS NOT NULL
+          AND DELETED >= DATEADD('day', -{self._MAX_DAYS}, CURRENT_TIMESTAMP())
+          AND RETENTION_TIME > {self._MAX_DAYS}
+          AND DATABASE_NAME NOT ILIKE 'SNOWFLAKE%'
+        ORDER BY DELETED DESC
+        LIMIT 50
+        """
+        try:
+            cursor.execute(query)
+            violations = []
+            for row in cursor.fetchall():
+                db_name, deleted_at, retention = row[0], row[1], row[2]
+                violations.append(
+                    self.violation(
+                        db_name,
+                        f"Dropped database '{db_name}' (deleted: {str(deleted_at)[:10]}) "
+                        f"has RETENTION_TIME={retention} days. "
+                        f"Time Travel storage still accumulates for {retention} days after drop.",
+                    )
+                )
+            return violations
+        except Exception as e:
+            err_str = str(e).lower()
+            if "does not exist" in err_str or "not authorized" in err_str or "002003" in err_str:
+                if self.telemetry:
+                    self.telemetry.debug(f"OPS_013 skipped: {e}")
+                return []
+            raise
+
+
+class PermifrostDriftCheck(Rule):
+    """OPS_014: Diff actual Snowflake grants against a Permifrost YAML spec.
+
+    This rule is opt-in and requires --permifrost-spec <path> at scan time.
+    Without the spec, the rule returns [] with an informational message.
+    """
+
+    def __init__(
+        self,
+        spec_path: str | Path | None = None,
+        telemetry: TelemetryPort | None = None,
+    ):
+        super().__init__(
+            "OPS_014",
+            "Permifrost Drift Check",
+            Severity.MEDIUM,
+            rationale=(
+                "Permifrost (or similar IaC tools) define the intended grant state. "
+                "Drift between the spec and actual Snowflake grants indicates manual "
+                "changes that bypass IaC review."
+            ),
+            remediation=(
+                "Run 'permifrost run --spec <path>' to reconcile grants with the spec, "
+                "or update the spec to match the intended state."
+            ),
+            remediation_key="RECONCILE_PERMIFROST_SPEC",
+            telemetry=telemetry,
+        )
+        self._spec_path = Path(spec_path) if spec_path else None
+
+    def _load_spec(self) -> dict | None:
+        """Load and parse the Permifrost YAML spec. Returns None on failure."""
+        try:
+            import yaml  # type: ignore[import-untyped]
+        except ImportError:
+            if self.telemetry:
+                self.telemetry.warning("OPS_014 skipped: PyYAML not installed (pip install pyyaml).")
+            return None
+        try:
+            return yaml.safe_load(self._spec_path.read_text(encoding="utf-8"))  # type: ignore[union-attr]
+        except Exception as e:
+            if self.telemetry:
+                self.telemetry.error(f"OPS_014: failed to load spec '{self._spec_path}': {e}")
+            return None
+
+    def _spec_user_roles(self, spec: dict) -> dict[str, set[str]]:
+        """Extract user → expected roles mapping from the spec."""
+        result: dict[str, set[str]] = {}
+        for user_name, user_def in (spec.get("users") or {}).items():
+            for role in (user_def or {}).get("member_of") or []:
+                result.setdefault(user_name.upper(), set()).add(role.upper())
+        return result
+
+    def _actual_user_roles(self, cursor: SnowflakeCursorProtocol) -> dict[str, set[str]] | None:
+        """Query actual user→role grants from GRANTS_TO_USERS."""
+        try:
+            cursor.execute(
+                "SELECT GRANTEE_NAME, ROLE FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_USERS"
+                " WHERE DELETED_ON IS NULL LIMIT 5000"
+            )
+            result: dict[str, set[str]] = {}
+            for row in cursor.fetchall():
+                result.setdefault(str(row[0]).upper(), set()).add(str(row[1]).upper())
+            return result
+        except Exception as e:
+            if self.telemetry:
+                self.telemetry.error(f"OPS_014: failed to query GRANTS_TO_USERS: {e}")
+            return None
+
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
+        if self._spec_path is None:
+            if self.telemetry:
+                self.telemetry.info(
+                    "OPS_014 skipped: no --permifrost-spec path provided. "
+                    "Re-run with --permifrost-spec <path> to enable Permifrost drift detection."
+                )
+            return []
+        spec = self._load_spec()
+        if spec is None:
+            return []
+        spec_user_roles = self._spec_user_roles(spec)
+        if not spec_user_roles:
+            return []
+        actual = self._actual_user_roles(cursor)
+        if actual is None:
+            return []
+        violations = []
+        for user, expected_roles in spec_user_roles.items():
+            actual_roles = actual.get(user, set())
+            missing = expected_roles - actual_roles
+            extra = actual_roles - expected_roles - {"PUBLIC"}
+            if missing:
+                violations.append(
+                    self.violation(
+                        user,
+                        f"Permifrost drift for user '{user}': "
+                        f"spec requires roles {sorted(missing)} but they are not granted.",
+                    )
+                )
+            if extra:
+                violations.append(
+                    self.violation(
+                        user,
+                        f"Permifrost drift for user '{user}': roles {sorted(extra)} are granted but not in the spec.",
+                    )
+                )
+        return violations

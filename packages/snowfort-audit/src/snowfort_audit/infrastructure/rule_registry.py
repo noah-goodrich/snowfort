@@ -22,12 +22,16 @@ from snowfort_audit.domain.rules import (
     CloudServicesRatioCheck,
     ClusteringKeyQualityCheck,
     ClusterKeyValidationCheck,
+    CrossRegionInferenceCheck,
     DataExfiltrationPreventionCheck,
     DataMaskingPolicyCoverageCheck,
     DataMetricFunctionsCoverageCheck,
     DataTransferMonitoringCheck,
+    DeveloperSandboxSprawlCheck,
     DynamicTableComplexityCheck,
+    DynamicTableFailureDetectionCheck,
     DynamicTableLagCheck,
+    DynamicTableRefreshLagCheck,
     EventTableConfigurationCheck,
     FailedTaskDetectionCheck,
     FailoverGroupCompletenessCheck,
@@ -37,9 +41,11 @@ from snowfort_audit.domain.rules import (
     HardcodedEnvCheck,
     HighChurnPermanentTableCheck,
     IaCDriftReadinessCheck,
+    InboundShareRiskCheck,
     IsolationPivotCheck,
     LocalSpillageCheck,
     MandatoryTaggingCheck,
+    MaskingPolicyCoverageExtendedCheck,
     MergePatternRecommendationCheck,
     MFAAccountEnforcementCheck,
     MFAEnforcementCheck,
@@ -50,7 +56,9 @@ from snowfort_audit.domain.rules import (
     ObjectCommentCheck,
     ObjectDocumentationCheck,
     ObservabilityInfrastructureCheck,
+    OutboundShareRiskCheck,
     PasswordPolicyCheck,
+    PermifrostDriftCheck,
     PerWarehouseStatementTimeoutCheck,
     PipelineObjectReplicationCheck,
     PoorPartitionPruningDetectionCheck,
@@ -101,6 +109,7 @@ def get_all_rules(
     evaluator: FinancialEvaluator,
     telemetry: TelemetryPort | None = None,
     project_root: Path | None = None,
+    permifrost_spec_path: str | None = None,
 ) -> list[Rule]:
     """Returns all audit rules with injected dependencies."""
     validator = SqlFluffValidatorGateway()
@@ -176,11 +185,17 @@ def get_all_rules(
         IaCDriftReadinessCheck(telemetry=telemetry),
         EventTableConfigurationCheck(telemetry=telemetry),
         DataMetricFunctionsCoverageCheck(telemetry=telemetry),
+        DeveloperSandboxSprawlCheck(telemetry=telemetry),
+        PermifrostDriftCheck(spec_path=permifrost_spec_path, telemetry=telemetry),
         # Governance
         AccountBudgetEnforcement(telemetry=telemetry),
         FutureGrantsAntiPatternCheck(telemetry=telemetry),
         ObjectDocumentationCheck(telemetry=telemetry),
         SensitiveDataClassificationCoverageCheck(telemetry=telemetry),
+        MaskingPolicyCoverageExtendedCheck(telemetry=telemetry),
+        InboundShareRiskCheck(telemetry=telemetry),
+        OutboundShareRiskCheck(telemetry=telemetry),
+        CrossRegionInferenceCheck(telemetry=telemetry),
         # Reliability
         ReplicationCheck(telemetry=telemetry),
         RetentionSafetyCheck(telemetry=telemetry),
@@ -189,6 +204,8 @@ def get_all_rules(
         ReplicationLagMonitoringCheck(telemetry=telemetry),
         FailedTaskDetectionCheck(telemetry=telemetry),
         PipelineObjectReplicationCheck(telemetry=telemetry),
+        DynamicTableRefreshLagCheck(telemetry=telemetry),
+        DynamicTableFailureDetectionCheck(telemetry=telemetry),
         # Static
         HardcodedEnvCheck(telemetry=telemetry),
         NakedDropCheck(telemetry=telemetry),
@@ -308,9 +325,10 @@ def get_rules(
     telemetry: TelemetryPort | None = None,
     custom_rules_dir: str | None = None,
     project_root: Path | None = None,
+    permifrost_spec_path: str | None = None,
 ) -> list[Rule]:
     """Combines builtin rules with loaded plugins and custom folder rules."""
-    builtin = get_all_rules(evaluator, telemetry, project_root)
+    builtin = get_all_rules(evaluator, telemetry, project_root, permifrost_spec_path=permifrost_spec_path)
     plugins = _load_plugins(telemetry)
     custom = discover_custom_rules(custom_rules_dir, telemetry) if custom_rules_dir else []
     return builtin + plugins + custom

@@ -76,8 +76,7 @@ def generate_keypair(
         from cryptography.hazmat.primitives.asymmetric import rsa
     except ImportError as exc:
         raise ImportError(
-            "The 'cryptography' package is required for keypair bootstrap. "
-            "Install it: pip install cryptography"
+            "The 'cryptography' package is required for keypair bootstrap. Install it: pip install cryptography"
         ) from exc
 
     path = Path(key_path).expanduser()

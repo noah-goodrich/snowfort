@@ -550,7 +550,9 @@ class ZombieUserCheck(Rule):
                     created = _utc(user[cols["created_on"]])
                     if created and (now - created).days > self.NEVER_LOGGED_IN_THRESHOLD_DAYS:
                         violations.append(
-                            Violation(self.id, name, "User created >30 days ago but never logged in.", effective_severity)
+                            Violation(
+                                self.id, name, "User created >30 days ago but never logged in.", effective_severity
+                            )
                         )
                     continue
 
@@ -558,7 +560,10 @@ class ZombieUserCheck(Rule):
                 if (now - last_login).days > self.INACTIVE_THRESHOLD_DAYS:
                     violations.append(
                         Violation(
-                            self.id, name, f"Zombie User: Inactive for {(now - last_login).days} days.", effective_severity
+                            self.id,
+                            name,
+                            f"Zombie User: Inactive for {(now - last_login).days} days.",
+                            effective_severity,
                         )
                     )
 
@@ -608,7 +613,9 @@ class ZombieRoleCheck(Rule):
                 gtr = scan_context.get_or_fetch("GRANTS_TO_ROLES", _GRANTS_CACHE_WINDOW, _gtr_fetcher(cursor))
                 gtu = scan_context.get_or_fetch("GRANTS_TO_USERS", _GRANTS_CACHE_WINDOW, _gtu_fetcher(cursor))
                 # Orphan set: roles that are granted as a role to another role
-                granted_to_role: set[str] = {str(r[_GTR_NAME]).upper() for r in gtr if str(r[_GTR_GRANTED_ON]).upper() == "ROLE"}
+                granted_to_role: set[str] = {
+                    str(r[_GTR_NAME]).upper() for r in gtr if str(r[_GTR_GRANTED_ON]).upper() == "ROLE"
+                }
                 # Orphan set: roles granted directly to users
                 granted_to_user: set[str] = {str(r[_GTU_ROLE]).upper() for r in gtu}
                 # Empty set: roles that appear as GRANTEE_NAME (have at least one privilege or role granted)
@@ -619,7 +626,9 @@ class ZombieRoleCheck(Rule):
                     "WHERE GRANTED_ON = 'ROLE' AND DELETED_ON IS NULL"
                 )
                 granted_to_role = {str(r[0]).upper() for r in cursor.fetchall()}
-                cursor.execute("SELECT DISTINCT ROLE FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_USERS WHERE DELETED_ON IS NULL")
+                cursor.execute(
+                    "SELECT DISTINCT ROLE FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_USERS WHERE DELETED_ON IS NULL"
+                )
                 granted_to_user = {str(r[0]).upper() for r in cursor.fetchall()}
                 cursor.execute(
                     "SELECT DISTINCT GRANTEE_NAME FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_ROLES WHERE DELETED_ON IS NULL"

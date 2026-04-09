@@ -78,8 +78,7 @@ def test_load_conventions_high_churn_override(tmp_path):
     except ImportError:
         return
     (tmp_path / "pyproject.toml").write_text(
-        "[tool.snowfort.conventions.thresholds.high_churn]\n"
-        'exclude_name_patterns = ["CDC_*", "STG_*"]\n',
+        '[tool.snowfort.conventions.thresholds.high_churn]\nexclude_name_patterns = ["CDC_*", "STG_*"]\n',
         encoding="utf-8",
     )
     c = load_conventions(tmp_path)
@@ -94,8 +93,7 @@ def test_load_conventions_mandatory_tagging_override(tmp_path):
     except ImportError:
         return
     (tmp_path / "pyproject.toml").write_text(
-        "[tool.snowfort.conventions.thresholds.mandatory_tagging]\n"
-        'exclude_warehouse_patterns = ["SYS_*"]\n',
+        '[tool.snowfort.conventions.thresholds.mandatory_tagging]\nexclude_warehouse_patterns = ["SYS_*"]\n',
         encoding="utf-8",
     )
     c = load_conventions(tmp_path)
@@ -108,8 +106,7 @@ def test_load_conventions_network_perimeter_sso_override(tmp_path):
     except ImportError:
         return
     (tmp_path / "pyproject.toml").write_text(
-        "[tool.snowfort.conventions.thresholds.network_perimeter]\n"
-        "sso_downgrade = true\n",
+        "[tool.snowfort.conventions.thresholds.network_perimeter]\nsso_downgrade = true\n",
         encoding="utf-8",
     )
     c = load_conventions(tmp_path)

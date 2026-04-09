@@ -18,20 +18,26 @@ from snowfort_audit.domain.rules.cost import (
 from snowfort_audit.domain.rules.cost_extensions import WorkloadHeterogeneityCheck
 from snowfort_audit.domain.rules.governance import (
     AccountBudgetEnforcement,
+    CrossRegionInferenceCheck,
     FutureGrantsAntiPatternCheck,
+    InboundShareRiskCheck,
+    MaskingPolicyCoverageExtendedCheck,
     ObjectDocumentationCheck,
+    OutboundShareRiskCheck,
     SensitiveDataClassificationCoverageCheck,
 )
 from snowfort_audit.domain.rules.op_excellence import (
     AlertConfigurationCheck,
     AlertExecutionReliabilityCheck,
     DataMetricFunctionsCoverageCheck,
+    DeveloperSandboxSprawlCheck,
     EventTableConfigurationCheck,
     IaCDriftReadinessCheck,
     MandatoryTaggingCheck,
     NotificationIntegrationCheck,
     ObjectCommentCheck,
     ObservabilityInfrastructureCheck,
+    PermifrostDriftCheck,
     ResourceMonitorCheck,
 )
 from snowfort_audit.domain.rules.ops import SLOThrottlerCheck
@@ -50,6 +56,8 @@ from snowfort_audit.domain.rules.perf import (
 from snowfort_audit.domain.rules.perf_extensions import CacheContentionCheck
 from snowfort_audit.domain.rules.reliability import (
     AdequateTimeTravelRetentionCheck,
+    DynamicTableFailureDetectionCheck,
+    DynamicTableRefreshLagCheck,
     FailedTaskDetectionCheck,
     FailoverGroupCompletenessCheck,
     PipelineObjectReplicationCheck,
@@ -99,6 +107,7 @@ from snowfort_audit.domain.rules.workload import SpillingMemoryCheck, WorkloadEf
 __all__ = [
     "AccountBudgetEnforcement",
     "AdminExposureCheck",
+    "CrossRegionInferenceCheck",
     "AdequateTimeTravelRetentionCheck",
     "AggressiveAutoSuspendCheck",
     "AlertConfigurationCheck",
@@ -113,9 +122,13 @@ __all__ = [
     "DataMaskingPolicyCoverageCheck",
     "DataMetricFunctionsCoverageCheck",
     "DataTransferMonitoringCheck",
+    "DeveloperSandboxSprawlCheck",
     "DynamicTableComplexityCheck",
+    "DynamicTableFailureDetectionCheck",
     "DynamicTableLagCheck",
+    "DynamicTableRefreshLagCheck",
     "EventTableConfigurationCheck",
+    "InboundShareRiskCheck",
     "FailoverGroupCompletenessCheck",
     "FailedTaskDetectionCheck",
     "FederatedAuthenticationCheck",
@@ -128,7 +141,9 @@ __all__ = [
     "IsolationPivotCheck",
     "LocalSpillageCheck",
     "MandatoryTaggingCheck",
+    "MaskingPolicyCoverageExtendedCheck",
     "MergePatternRecommendationCheck",
+    "OutboundShareRiskCheck",
     "MFAEnforcementCheck",
     "MultiClusterSafeguardCheck",
     "NakedDropCheck",
@@ -140,6 +155,7 @@ __all__ = [
     "ObservabilityInfrastructureCheck",
     "PasswordPolicyCheck",
     "PerWarehouseStatementTimeoutCheck",
+    "PermifrostDriftCheck",
     "PipelineObjectReplicationCheck",
     "PoorPartitionPruningDetectionCheck",
     "PrivateConnectivityCheck",

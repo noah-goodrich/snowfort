@@ -22,9 +22,7 @@ from snowfort_audit.domain.rules._grants import (
 )
 
 # Write privileges that should never appear on read-only roles/users.
-_WRITE_PRIVILEGES = frozenset(
-    {"INSERT", "UPDATE", "DELETE", "TRUNCATE", "CREATE TABLE", "CREATE VIEW", "OWNERSHIP"}
-)
+_WRITE_PRIVILEGES = frozenset({"INSERT", "UPDATE", "DELETE", "TRUNCATE", "CREATE TABLE", "CREATE VIEW", "OWNERSHIP"})
 _RO_LIMIT = 50  # Max violations to surface per rule (mirrors original SQL LIMIT)
 
 
@@ -173,10 +171,7 @@ class ReadOnlyRoleIntegrityCheck(Rule):
                 for row in gtr:
                     grantee = str(row[GTR_GRANTEE_NAME]).upper()
                     privilege = str(row[GTR_PRIVILEGE]).upper()
-                    if (
-                        (grantee.endswith("_RO") or grantee.endswith("_READER"))
-                        and privilege in _WRITE_PRIVILEGES
-                    ):
+                    if (grantee.endswith("_RO") or grantee.endswith("_READER")) and privilege in _WRITE_PRIVILEGES:
                         violations.append(
                             Violation(
                                 self.id,
