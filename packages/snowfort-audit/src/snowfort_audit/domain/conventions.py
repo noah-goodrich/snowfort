@@ -10,7 +10,7 @@ from typing import Any
 class WarehouseConventions:
     """Warehouse-related defaults."""
 
-    auto_suspend_seconds: int = 1
+    auto_suspend_seconds: int = 30
     max_statement_timeout_seconds: int = 3600
     scaling_policy_mcw: str = "ECONOMY"
 

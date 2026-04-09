@@ -51,7 +51,34 @@ def test_auto_suspend_check_static():
 
 
 def test_auto_suspend_check_static_ok():
+    # Default threshold is now 30s; 1s is well within convention.
     assert AggressiveAutoSuspendCheck().check({"type": "WAREHOUSE", "auto_suspend": "1"}, "WH") == []
+
+
+def test_aggressive_auto_suspend_too_high():
+    """B2: auto_suspend > max_seconds (3600) → MEDIUM violation with dedicated message."""
+    wh = ("BIG_WH", "7200")
+    cols = {"name": 0, "auto_suspend": 1}
+    violations = AggressiveAutoSuspendCheck()._check_warehouse_suspension(wh, cols, {})
+    assert len(violations) == 1
+    assert "7200" in violations[0].message
+    assert "3600" in violations[0].message
+
+
+def test_aggressive_auto_suspend_above_convention_below_max():
+    """B2: auto_suspend > convention (30s) but ≤ max_seconds → convention violation."""
+    wh = ("MED_WH", "600")
+    cols = {"name": 0, "auto_suspend": 1}
+    violations = AggressiveAutoSuspendCheck()._check_warehouse_suspension(wh, cols, {})
+    assert len(violations) == 1
+    assert "600" in violations[0].message
+
+
+def test_aggressive_auto_suspend_within_convention():
+    """B2: auto_suspend ≤ convention (30s) → no violation."""
+    wh = ("FAST_WH", "30")
+    cols = {"name": 0, "auto_suspend": 1}
+    assert AggressiveAutoSuspendCheck()._check_warehouse_suspension(wh, cols, {}) == []
 
 
 def test_auto_suspend_non_wh():

@@ -27,9 +27,10 @@ def _name_matches_pattern(name: str, pattern: str) -> bool:
 
 
 class AggressiveAutoSuspendCheck(Rule):
-    """COST_001: Flag Warehouses with auto_suspend > convention (default 1s unless performance benefit)."""
+    """COST_001: Flag Warehouses with auto_suspend > convention (default 30s unless performance benefit)."""
 
-    AUTO_SUSPEND_LIMIT_SECONDS = 1  # fallback when conventions not injected
+    AUTO_SUSPEND_LIMIT_SECONDS = 30   # fallback when conventions not injected
+    AUTO_SUSPEND_MAX_SECONDS = 3600  # fallback hard cap when conventions not injected
 
     def __init__(
         self,
@@ -53,6 +54,11 @@ class AggressiveAutoSuspendCheck(Rule):
         if self._conventions is not None:
             return self._conventions.warehouse.auto_suspend_seconds
         return self.AUTO_SUSPEND_LIMIT_SECONDS
+
+    def _auto_suspend_max(self) -> int:
+        if self._conventions is not None:
+            return self._conventions.thresholds.warehouse_auto_suspend_max_seconds
+        return self.AUTO_SUSPEND_MAX_SECONDS
 
     def check(self, resource: dict, resource_name: str) -> list[Violation]:
         if resource.get("type", "").upper() != "WAREHOUSE":
@@ -145,8 +151,20 @@ class AggressiveAutoSuspendCheck(Rule):
             ]
 
         suspend_val = int(suspend)
-        limit = self._auto_suspend_limit()
+        max_seconds = self._auto_suspend_max()
 
+        if suspend_val > max_seconds:
+            return [
+                Violation(
+                    self.id,
+                    name,
+                    f"Auto-suspend {suspend_val}s greatly exceeds recommended maximum ({max_seconds}s). Warehouse may idle for hours.",
+                    Severity.MEDIUM,
+                    remediation_key=self.remediation_key,
+                )
+            ]
+
+        limit = self._auto_suspend_limit()
         if suspend_val > limit:
             return [
                 Violation(
