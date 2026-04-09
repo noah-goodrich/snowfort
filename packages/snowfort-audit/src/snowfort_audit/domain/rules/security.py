@@ -239,33 +239,59 @@ class NetworkPerimeterCheck(Rule):
         )
 
     def check_online(
-        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+        self,
+        cursor: SnowflakeCursorProtocol,
+        _resource_name: str | None = None,
+        *,
+        scan_context: ScanContext | None = None,
+        **_kw,
     ) -> list[Violation]:
+        sso_enforced = scan_context.sso_enforced if scan_context is not None else None
         violations = []
-        violations.extend(self._check_account(cursor))
+        violations.extend(self._check_account(cursor, sso_enforced=sso_enforced))
         violations.extend(self._check_users(cursor))
         return violations
 
-    def _check_account(self, cursor: SnowflakeCursorProtocol) -> list[Violation]:
+    def _check_account(
+        self,
+        cursor: SnowflakeCursorProtocol,
+        *,
+        sso_enforced: bool | None = None,
+    ) -> list[Violation]:
+        # When SSO is enforced, credential theft risk is reduced; downgrade severity to LOW.
+        effective_severity = Severity.LOW if sso_enforced else self.severity
         try:
             # 1. Check Account Level
             cursor.execute("SHOW PARAMETERS LIKE 'NETWORK_POLICY' IN ACCOUNT")
             res = cursor.fetchone()
             if not res or res[1] == "":
-                return [self.violation("Account", "No Account-level Network Policy set")]
+                return [
+                    Violation(
+                        self.id,
+                        "Account",
+                        "No Account-level Network Policy set",
+                        effective_severity,
+                        remediation_key=self.remediation_key,
+                    )
+                ]
 
             # Deep Inspection
             policy_name = res[1]
-            return self._describe_and_check_policy(cursor, "Account", policy_name)
+            return self._describe_and_check_policy(cursor, "Account", policy_name, effective_severity)
         except Exception as e:
             if self.telemetry:
                 self.telemetry.debug(f"Failed to check account network policy: {e}")
         return []
 
     def _describe_and_check_policy(
-        self, cursor: SnowflakeCursorProtocol, resource_type: str, policy_name: str
+        self,
+        cursor: SnowflakeCursorProtocol,
+        resource_type: str,
+        policy_name: str,
+        effective_severity: Severity | None = None,
     ) -> list[Violation]:
         """Runs DESCRIBE NETWORK POLICY and checks for 0.0.0.0/0."""
+        sev = effective_severity if effective_severity is not None else self.severity
         try:
             cursor.execute(f"DESCRIBE NETWORK POLICY {policy_name}")
             rows = cursor.fetchall()
@@ -275,9 +301,12 @@ class NetworkPerimeterCheck(Rule):
                     allow_list = row[1]
                     if "0.0.0.0/0" in allow_list:
                         return [
-                            self.violation(
+                            Violation(
+                                self.id,
                                 f"{resource_type} ({policy_name})",
                                 f"Network Policy '{policy_name}' contains 0.0.0.0/0 (Internet Open).",
+                                sev,
+                                remediation_key=self.remediation_key,
                             )
                         ]
         except Exception as e:

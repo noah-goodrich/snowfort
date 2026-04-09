@@ -456,6 +456,53 @@ class OnlineScanUseCase:
             object.__setattr__(ctx, "tag_refs_index", idx)
             self.telemetry.debug(f"  [ScanContext] Built tag_refs_index with {len(idx)} entries.")
 
+        # Derive sso_enforced: True when ≥50% of active human users have ext_authn_uid set.
+        # Also compute zombie_user_logins for FederatedAuthenticationCheck (B6).
+        if ctx.users is not None and ctx.users_cols:
+            cols = ctx.users_cols
+            idx_uid = cols.get("ext_authn_uid")
+            idx_type = cols.get("type")
+            idx_login = cols.get("last_success_login")
+            idx_created = cols.get("created_on")
+            idx_name = cols.get("name")
+            human_total = 0
+            sso_count = 0
+            zombie_logins: set[str] = set()
+            now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+            for user in ctx.users:
+                user_type = str(user[idx_type] if idx_type is not None else "").upper()
+                if user_type == "SERVICE":
+                    continue
+                human_total += 1
+                if idx_uid is not None and user[idx_uid]:
+                    sso_count += 1
+                # Zombie detection (mirrors ZombieUserCheck logic) for B6 exclusions.
+                if idx_name is not None and idx_login is not None:
+                    name_val = user[idx_name]
+                    last_login = user[idx_login]
+                    if last_login is None and idx_created is not None:
+                        created = user[idx_created]
+                        if created is not None:
+                            created_dt = created if hasattr(created, "tzinfo") else None
+                            if created_dt is not None and created_dt.tzinfo is None:
+                                created_dt = created_dt.replace(tzinfo=__import__("datetime").timezone.utc)
+                            if created_dt is not None and (now - created_dt).days > 30:
+                                zombie_logins.add(str(name_val).lower())
+                    elif last_login is not None:
+                        ll = last_login if hasattr(last_login, "tzinfo") else None
+                        if ll is not None and ll.tzinfo is None:
+                            ll = ll.replace(tzinfo=__import__("datetime").timezone.utc)
+                        if ll is not None and (now - ll).days > 90:
+                            zombie_logins.add(str(name_val).lower())
+            sso_enforced = (sso_count / human_total >= 0.5) if human_total > 0 else False
+            object.__setattr__(ctx, "sso_enforced", sso_enforced)
+            object.__setattr__(ctx, "zombie_user_logins", frozenset(zombie_logins))
+            self.telemetry.debug(
+                f"  [ScanContext] SSO detection: {sso_count}/{human_total} human users "
+                f"have ext_authn_uid → sso_enforced={sso_enforced}. "
+                f"Zombie logins: {len(zombie_logins)}."
+            )
+
         return ctx
 
     def _execute_sequential(

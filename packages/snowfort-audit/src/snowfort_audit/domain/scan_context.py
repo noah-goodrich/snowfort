@@ -50,6 +50,12 @@ class ScanContext:
     #        BYTES=4, ROW_COUNT=5, RETENTION_TIME=6, ENABLE_SCHEMA_EVOLUTION=7,
     #        CLUSTERING_KEY=8, COMMENT=9
     tables: tuple[Row, ...] | None = None
+    # Derived SSO detection: True when ≥50% of active human users have ext_authn_uid populated
+    # (detected during _prefetch). None means not yet computed.
+    sso_enforced: bool | None = None
+    # Set of lowercase usernames flagged as zombie (inactive) by ZombieUserCheck during prefetch.
+    # Used by FederatedAuthenticationCheck (B6) to skip users already reported elsewhere.
+    zombie_user_logins: frozenset[str] | None = None
     # Generalized prefetch cache: (view_name, window_days) -> fetched rows.
     # Populated lazily by get_or_fetch(); shared across all rules in a scan session.
     _fetch_cache: dict[tuple[str, int], tuple[Row, ...]] = field(default_factory=dict, repr=False)

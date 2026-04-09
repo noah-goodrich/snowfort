@@ -73,6 +73,32 @@ def test_network_exc():
     assert NetworkPerimeterCheck()._check_account(c) == []
 
 
+def test_network_perimeter_sso_downgrade():
+    """B3: severity is LOW when sso_enforced=True, CRITICAL when sso_enforced=False/None."""
+    from snowfort_audit.domain.rule_definitions import Severity
+    from snowfort_audit.domain.scan_context import ScanContext
+
+    ctx_sso = ScanContext()
+    object.__setattr__(ctx_sso, "sso_enforced", True)
+
+    ctx_no_sso = ScanContext()
+    object.__setattr__(ctx_no_sso, "sso_enforced", False)
+
+    def make_cursor():
+        c = MagicMock()
+        c.fetchone.return_value = ("NP", "")  # no network policy set
+        return c
+
+    v_sso = NetworkPerimeterCheck().check_online(make_cursor(), scan_context=ctx_sso)
+    v_no_sso = NetworkPerimeterCheck().check_online(make_cursor(), scan_context=ctx_no_sso)
+
+    assert len(v_sso) == 1
+    assert v_sso[0].severity == Severity.LOW, f"Expected LOW, got {v_sso[0].severity}"
+
+    assert len(v_no_sso) == 1
+    assert v_no_sso[0].severity == Severity.CRITICAL, f"Expected CRITICAL, got {v_no_sso[0].severity}"
+
+
 def test_public_grants():
     c = MagicMock()
     c.fetchall.return_value = [("cr", "SELECT", "TABLE", "MY.PUB.T")]
