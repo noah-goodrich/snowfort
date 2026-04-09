@@ -571,3 +571,60 @@ class CrossRegionInferenceCheck(Rule):
                     )
                 return [self.violation("Account", msg)]
         return []
+
+
+class IcebergTableGovernanceCheck(Rule):
+    """GOV_009: Iceberg tables missing explicit catalog, retention, or encryption settings."""
+
+    def __init__(self, telemetry: TelemetryPort | None = None):
+        super().__init__(
+            "GOV_009",
+            "Iceberg Table Governance",
+            Severity.MEDIUM,
+            rationale="Iceberg tables on external catalogs (Glue, Polaris, REST) require explicit catalog integration, retention, and server-side encryption to meet data governance standards. Tables without these settings may expose data or become orphaned.",
+            remediation="Set the catalog integration on Iceberg tables: ALTER ICEBERG TABLE <name> SET CATALOG = <integration>. Enable SSE: ensure the S3/ADLS storage integration uses encryption. Set retention: ALTER TABLE <name> SET DATA_RETENTION_TIME_IN_DAYS = <n>.",
+            telemetry=telemetry,
+        )
+
+    def check_online(
+        self,
+        cursor: SnowflakeCursorProtocol,
+        _resource_name: str | None = None,
+        *,
+        scan_context: ScanContext | None = None,
+        **_kw,
+    ) -> list[Violation]:
+        try:
+            cursor.execute(
+                "SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME,"
+                "       CATALOG_INTEGRATION_NAME, DATA_RETENTION_TIME_IN_DAYS"
+                " FROM SNOWFLAKE.ACCOUNT_USAGE.ICEBERG_TABLES"
+                " WHERE DELETED IS NULL"
+                " ORDER BY TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME"
+                " LIMIT 100"
+            )
+            violations: list[Violation] = []
+            for row in cursor.fetchall():
+                db, schema, tbl = str(row[0]), str(row[1]), str(row[2])
+                catalog_integration = row[3]
+                retention = row[4]
+                resource = f"{db}.{schema}.{tbl}"
+                issues = []
+                if not catalog_integration:
+                    issues.append("no catalog integration")
+                if retention is None or int(retention) == 0:
+                    issues.append("retention=0 days")
+                if issues:
+                    violations.append(
+                        Violation(
+                            self.id,
+                            resource,
+                            f"Iceberg table '{resource}' governance gaps: {', '.join(issues)}",
+                            self.severity,
+                        )
+                    )
+            return violations
+        except (Exception, RuntimeError) as e:
+            if self.telemetry:
+                self.telemetry.error(f"Rule execution failed: {e}")
+            return []

@@ -45,6 +45,7 @@ GOV_005: []
 GOV_006: []
 GOV_007: []
 GOV_008: []
+GOV_009: []
 OPS_001:
 - message: Object has ZERO tags. Governance failure.
   resource: Database 'MY_APP_DB'
@@ -175,6 +176,12 @@ SEC_017:
     Center; enable it for security posture.
   resource: Account
   severity: MEDIUM
+SEC_018: []
+SEC_019: []
+SEC_020: []
+SEC_021: []
+SEC_022: []
+SEC_023: []
 SQL_001: []
 STAT_001: []
 STAT_002: []
