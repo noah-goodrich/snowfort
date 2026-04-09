@@ -102,7 +102,7 @@ def _run_keypair_bootstrap(telemetry, key_path: str, dry_run: bool, snowflake_us
     """Generate RSA-2048 keypair and print the ALTER USER SQL."""
     import os
 
-    from snowfort_audit.infrastructure.gateways.keypair_bootstrap import generate_keypair
+    from snowfort_audit.use_cases.bootstrap import KeypairBootstrapUseCase
 
     username = snowflake_user or os.environ.get("SNOWFLAKE_USER") or os.environ.get("SNOWFLAKE_USERNAME") or ""
     if not username:
@@ -114,7 +114,7 @@ def _run_keypair_bootstrap(telemetry, key_path: str, dry_run: bool, snowflake_us
         telemetry.step(f"Generating RSA-2048 keypair → {key_path}")
 
     try:
-        alter_sql = generate_keypair(key_path, username=username, dry_run=dry_run)
+        alter_sql = KeypairBootstrapUseCase().execute(key_path, username=username, dry_run=dry_run)
     except ValueError as exc:
         telemetry.error(f"Keypair bootstrap failed: {exc}")
         raise click.Abort() from exc
