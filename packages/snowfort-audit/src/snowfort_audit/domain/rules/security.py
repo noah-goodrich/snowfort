@@ -690,11 +690,19 @@ class FederatedAuthenticationCheck(Rule):
             idx_key = cols.get("has_rsa_public_key")
             idx_uid = cols.get("ext_authn_uid")
             idx_type = cols.get("type")
+            # B6: skip users already reported as zombie — they should be disabled, not re-auth'd.
+            zombie_logins = (
+                scan_context.zombie_user_logins
+                if scan_context is not None and scan_context.zombie_user_logins is not None
+                else frozenset()
+            )
             for user in users:
                 name = user[cols["name"]]
                 user_type = str(user[idx_type] if idx_type is not None else "PERSON").upper()
                 if user_type == "SERVICE":
                     continue
+                if str(name).lower() in zombie_logins:
+                    continue  # B6: zombie users are reported by SEC_007; skip here to reduce noise
                 has_pwd = str(user[cols["has_password"]]).lower() == "true"
                 mfa_on = idx_mfa is not None and str(user[idx_mfa] or "").lower() == "true"
                 ext_duo = idx_duo is not None and str(user[idx_duo] or "").lower() == "true"

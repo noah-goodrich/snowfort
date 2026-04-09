@@ -200,6 +200,31 @@ def test_zombie_role_exc():
     assert ZombieRoleCheck().check_online(c) == []
 
 
+def test_federated_excludes_zombies_and_service():
+    """B6: zombie users and SERVICE users are excluded from FederatedAuthenticationCheck."""
+    from snowfort_audit.domain.scan_context import ScanContext
+
+    ctx = ScanContext()
+    object.__setattr__(ctx, "zombie_user_logins", frozenset({"zombie_user"}))
+
+    # cols: name=0, has_password=1, has_mfa=2, ext_authn_duo=3, has_rsa_public_key=4, ext_authn_uid=5, type=6
+    users = (
+        ("ZOMBIE_USER", "true", "false", "false", "false", "", "PERSON"),   # zombie → excluded
+        ("SVC_BOT", "true", "false", "false", "false", "", "SERVICE"),       # service → excluded
+        ("HUMAN_USER", "true", "false", "false", "false", "", "PERSON"),     # should be flagged
+    )
+    object.__setattr__(ctx, "users", users)
+    object.__setattr__(ctx, "users_cols", {
+        "name": 0, "has_password": 1, "has_mfa": 2, "ext_authn_duo": 3,
+        "has_rsa_public_key": 4, "ext_authn_uid": 5, "type": 6,
+    })
+
+    c = MagicMock()
+    violations = FederatedAuthenticationCheck().check_online(c, scan_context=ctx)
+    assert len(violations) == 1
+    assert "HUMAN_USER" in violations[0].message
+
+
 def test_federated_pwd():
     c = MagicMock()
     c.description = [

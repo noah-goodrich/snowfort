@@ -15,7 +15,7 @@ from snowfort_audit.infrastructure.config_loader import load_conventions
 
 def test_warehouse_conventions_defaults():
     w = WarehouseConventions()
-    assert w.auto_suspend_seconds == 1
+    assert w.auto_suspend_seconds == 30
     assert w.max_statement_timeout_seconds == 3600
     assert w.scaling_policy_mcw == "ECONOMY"
 
@@ -96,7 +96,7 @@ def test_merge_dataclass_nested_non_dict_ignored():
 def test_load_conventions_no_pyproject(tmp_path):
     result = load_conventions(tmp_path)
     assert isinstance(result, SnowfortConventions)
-    assert result.warehouse.auto_suspend_seconds == 1
+    assert result.warehouse.auto_suspend_seconds == 30
 
 
 def test_load_conventions_with_overrides(tmp_path):

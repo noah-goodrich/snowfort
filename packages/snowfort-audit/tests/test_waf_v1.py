@@ -96,7 +96,7 @@ def test_ops_001_tagging_logic():
     assert len(violations) == expected_violations_tagging
 
     v_wh = next(v for v in violations if "WH_NO_TAGS" in v.resource_name)
-    assert v_wh.severity.name == "CRITICAL"  # High/Critical
+    assert v_wh.severity.name == "MEDIUM"  # B4: downgraded CRITICAL → MEDIUM
     assert "ZERO tags" in v_wh.message
 
     v_db = next(v for v in violations if "DB_PARTIAL_TAGS" in v.resource_name)

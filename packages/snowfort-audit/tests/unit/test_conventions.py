@@ -16,13 +16,13 @@ def test_default_conventions():
     assert c.admin_database == "SNOWFORT"
     assert c.admin_role == "SNOWFORT"
     assert c.admin_user == "SVC_SNOWFORT"
-    assert c.warehouse.auto_suspend_seconds == 1
+    assert c.warehouse.auto_suspend_seconds == 30
     assert "COST_CENTER" in c.tags.required_tags
 
 
 def test_warehouse_conventions_defaults():
     w = WarehouseConventions()
-    assert w.auto_suspend_seconds == 1
+    assert w.auto_suspend_seconds == 30
     assert w.max_statement_timeout_seconds == 3600
     assert w.scaling_policy_mcw == "ECONOMY"
 
@@ -38,7 +38,7 @@ def test_load_conventions_no_pyproject_returns_defaults(tmp_path):
     assert not (tmp_path / "pyproject.toml").exists()
     c = load_conventions(tmp_path)
     assert c.admin_database == "SNOWFORT"
-    assert c.warehouse.auto_suspend_seconds == 1
+    assert c.warehouse.auto_suspend_seconds == 30
 
 
 def test_load_conventions_with_pyproject_overrides(tmp_path):

@@ -3,6 +3,7 @@ import inspect
 import textwrap
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 from typing import Any
 
 from snowfort_audit._vendor.protocols import SnowflakeCursorProtocol, SnowflakeQueryProtocol
@@ -32,6 +33,59 @@ def _is_system_or_tool_violation(v: Violation, include_snowfort_db: bool) -> boo
 
 
 _resource_name_cache: dict[type, bool] = {}
+
+
+def _is_zombie_user(user: Any, cols: dict[str, int], now: datetime) -> bool:
+    """Return True if user looks like a zombie (inactive >90d or never-logged-in >30d)."""
+    idx_login = cols.get("last_success_login")
+    idx_created = cols.get("created_on")
+    if idx_login is None:
+        return False
+    last_login = user[idx_login]
+    if last_login is None:
+        if idx_created is None:
+            return False
+        created = user[idx_created]
+        if created is None or not hasattr(created, "tzinfo"):
+            return False
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        return (now - created).days > 30
+    if not hasattr(last_login, "tzinfo"):
+        return False
+    if last_login.tzinfo is None:
+        last_login = last_login.replace(tzinfo=timezone.utc)
+    return (now - last_login).days > 90
+
+
+def _derive_sso_and_zombies(
+    users: tuple[Any, ...],
+    cols: dict[str, int],
+) -> tuple[bool, set[str]]:
+    """Compute sso_enforced flag and zombie login set from prefetched SHOW USERS rows.
+
+    sso_enforced is True when ≥50% of non-SERVICE users have ext_authn_uid set.
+    zombie_logins contains lowercase usernames inactive >90 days or never-logged-in >30 days.
+    """
+    idx_uid = cols.get("ext_authn_uid")
+    idx_type = cols.get("type")
+    idx_name = cols.get("name")
+    human_total = 0
+    sso_count = 0
+    zombie_logins: set[str] = set()
+    now = datetime.now(timezone.utc)
+    for user in users:
+        user_type = str(user[idx_type] if idx_type is not None else "").upper()
+        if user_type == "SERVICE":
+            continue
+        human_total += 1
+        if idx_uid is not None and user[idx_uid]:
+            sso_count += 1
+        if idx_name is not None and _is_zombie_user(user, cols, now):
+            zombie_logins.add(str(user[idx_name]).lower())
+    sso_enforced = (sso_count / human_total >= 0.5) if human_total > 0 else False
+    return sso_enforced, zombie_logins
+
 
 
 def _class_uses_resource_name(cls: type) -> bool:
@@ -456,50 +510,13 @@ class OnlineScanUseCase:
             object.__setattr__(ctx, "tag_refs_index", idx)
             self.telemetry.debug(f"  [ScanContext] Built tag_refs_index with {len(idx)} entries.")
 
-        # Derive sso_enforced: True when ≥50% of active human users have ext_authn_uid set.
-        # Also compute zombie_user_logins for FederatedAuthenticationCheck (B6).
+        # Derive sso_enforced and zombie_user_logins from the prefetched user list.
         if ctx.users is not None and ctx.users_cols:
-            cols = ctx.users_cols
-            idx_uid = cols.get("ext_authn_uid")
-            idx_type = cols.get("type")
-            idx_login = cols.get("last_success_login")
-            idx_created = cols.get("created_on")
-            idx_name = cols.get("name")
-            human_total = 0
-            sso_count = 0
-            zombie_logins: set[str] = set()
-            now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
-            for user in ctx.users:
-                user_type = str(user[idx_type] if idx_type is not None else "").upper()
-                if user_type == "SERVICE":
-                    continue
-                human_total += 1
-                if idx_uid is not None and user[idx_uid]:
-                    sso_count += 1
-                # Zombie detection (mirrors ZombieUserCheck logic) for B6 exclusions.
-                if idx_name is not None and idx_login is not None:
-                    name_val = user[idx_name]
-                    last_login = user[idx_login]
-                    if last_login is None and idx_created is not None:
-                        created = user[idx_created]
-                        if created is not None:
-                            created_dt = created if hasattr(created, "tzinfo") else None
-                            if created_dt is not None and created_dt.tzinfo is None:
-                                created_dt = created_dt.replace(tzinfo=__import__("datetime").timezone.utc)
-                            if created_dt is not None and (now - created_dt).days > 30:
-                                zombie_logins.add(str(name_val).lower())
-                    elif last_login is not None:
-                        ll = last_login if hasattr(last_login, "tzinfo") else None
-                        if ll is not None and ll.tzinfo is None:
-                            ll = ll.replace(tzinfo=__import__("datetime").timezone.utc)
-                        if ll is not None and (now - ll).days > 90:
-                            zombie_logins.add(str(name_val).lower())
-            sso_enforced = (sso_count / human_total >= 0.5) if human_total > 0 else False
+            sso_enforced, zombie_logins = _derive_sso_and_zombies(ctx.users, ctx.users_cols)
             object.__setattr__(ctx, "sso_enforced", sso_enforced)
             object.__setattr__(ctx, "zombie_user_logins", frozenset(zombie_logins))
             self.telemetry.debug(
-                f"  [ScanContext] SSO detection: {sso_count}/{human_total} human users "
-                f"have ext_authn_uid → sso_enforced={sso_enforced}. "
+                f"  [ScanContext] SSO detection: sso_enforced={sso_enforced}. "
                 f"Zombie logins: {len(zombie_logins)}."
             )
 

@@ -1,8 +1,8 @@
 COST_001:
-- message: Auto-suspend 600s exceeds Snowfort convention (1s).
+- message: Auto-suspend 600s exceeds Snowfort convention (30s).
   resource: BAD_COST_WH
   severity: MEDIUM
-- message: Auto-suspend 60s exceeds Snowfort convention (1s).
+- message: Auto-suspend 60s exceeds Snowfort convention (30s).
   resource: GOOD_WH
   severity: MEDIUM
 COST_002:
@@ -44,10 +44,10 @@ GOV_004: []
 OPS_001:
 - message: Object has ZERO tags. Governance failure.
   resource: Database 'MY_APP_DB'
-  severity: CRITICAL
+  severity: MEDIUM
 - message: Object has ZERO tags. Governance failure.
   resource: Warehouse '2024-01-01'
-  severity: CRITICAL
+  severity: MEDIUM
 OPS_003:
 - message: No Snowflake Alerts defined; configure alerts for key metrics and failures.
   resource: Account

@@ -57,8 +57,9 @@ class TestCostRules:
         assert len(rule.check(res, "WH_DEV")) == 1
         res = {"type": "WAREHOUSE", "auto_suspend": "600"}
         assert len(rule.check(res, "WH_PRD")) == 1
+        # 30s is now within convention (threshold changed 1→30 in B2).
         res = {"type": "WAREHOUSE", "auto_suspend": "30"}
-        assert len(rule.check(res, "WH_DEV")) == 1
+        assert len(rule.check(res, "WH_DEV")) == 0
 
     def test_aggressive_auto_suspend_check_non_warehouse_returns_empty(self):
         rule = AggressiveAutoSuspendCheck()
