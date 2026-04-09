@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fnmatch
 from typing import TYPE_CHECKING, cast
 
 from snowfort_audit.domain.conventions import SnowfortConventions
@@ -18,6 +19,11 @@ if TYPE_CHECKING:
     from snowfort_audit.domain.scan_context import ScanContext
 
 # Removed Infrastructure import
+
+
+def _name_matches_pattern(name: str, pattern: str) -> bool:
+    """Case-insensitive glob match (supports * and ? wildcards)."""
+    return fnmatch.fnmatchcase(name.upper(), pattern.upper())
 
 
 class AggressiveAutoSuspendCheck(Rule):
@@ -385,7 +391,11 @@ class UnderutilizedWarehouseCheck(Rule):
 class HighChurnPermanentTableCheck(Rule):
     """COST_012: Identify Permanent tables where Fail-safe bytes > 3x Active bytes."""
 
-    def __init__(self, telemetry: TelemetryPort | None = None):
+    def __init__(
+        self,
+        conventions: SnowfortConventions | None = None,
+        telemetry: TelemetryPort | None = None,
+    ):
         super().__init__(
             "COST_012",
             "High-Churn Permanent Tables",
@@ -398,6 +408,12 @@ class HighChurnPermanentTableCheck(Rule):
             remediation_key="CONVERT_TO_TRANSIENT",
             telemetry=telemetry,
         )
+        self._conventions = conventions
+
+    def _exclude_name_patterns(self) -> tuple[str, ...]:
+        if self._conventions is not None:
+            return self._conventions.thresholds.high_churn.exclude_name_patterns
+        return ()
 
     def check_online(
         self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
@@ -419,16 +435,24 @@ class HighChurnPermanentTableCheck(Rule):
         )
         try:
             cursor.execute(query)
-            return [
-                Violation(
-                    self.id,
-                    row[0],
-                    f"Fail-safe bytes ({row[2]}) > 3x Active bytes ({row[1]}). High churn detected.",
-                    self.severity,
-                    remediation_key=self.remediation_key,
+            exclude_patterns = self._exclude_name_patterns()
+            violations = []
+            for row in cursor.fetchall():
+                table_name: str = str(row[0]).upper()
+                if exclude_patterns and any(
+                    _name_matches_pattern(table_name, pat) for pat in exclude_patterns
+                ):
+                    continue
+                violations.append(
+                    Violation(
+                        self.id,
+                        row[0],
+                        f"Fail-safe bytes ({row[2]}) > 3x Active bytes ({row[1]}). High churn detected.",
+                        self.severity,
+                        remediation_key=self.remediation_key,
+                    )
                 )
-                for row in cursor.fetchall()
-            ]
+            return violations
         except Exception:
             return []
 

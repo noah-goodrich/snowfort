@@ -114,7 +114,7 @@ def get_all_rules(
         RunawayQueryCheck(telemetry=telemetry),
         MultiClusterSafeguardCheck(telemetry=telemetry),
         WorkloadHeterogeneityCheck(telemetry=telemetry),
-        HighChurnPermanentTableCheck(telemetry=telemetry),
+        HighChurnPermanentTableCheck(conventions=conventions, telemetry=telemetry),
         UnderutilizedWarehouseCheck(telemetry=telemetry),
         IsolationPivotCheck(telemetry=telemetry),
         PerWarehouseStatementTimeoutCheck(telemetry=telemetry),

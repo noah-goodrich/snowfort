@@ -142,6 +142,28 @@ def test_high_churn_exc():
     assert HighChurnPermanentTableCheck().check_online(c) == []
 
 
+def test_high_churn_exclusions():
+    """B1: tables matching exclude_name_patterns are suppressed."""
+    from snowfort_audit.domain.conventions import HighChurnThresholds, RuleThresholdConventions, SnowfortConventions
+
+    conv = SnowfortConventions(
+        thresholds=RuleThresholdConventions(
+            high_churn=HighChurnThresholds(exclude_name_patterns=("*_CDC_*", "*_STAGING*"))
+        )
+    )
+    c = MagicMock()
+    # 3 rows: 2 should be excluded, 1 should remain
+    c.fetchall.return_value = [
+        ("DB.SCH.ORDERS_CDC_STREAM", 100, 500),
+        ("DB.SCH.USERS_STAGING", 100, 400),
+        ("DB.SCH.REAL_TABLE", 100, 350),
+    ]
+    rule = HighChurnPermanentTableCheck(conventions=conv)
+    violations = rule.check_online(c)
+    assert len(violations) == 1
+    assert violations[0].resource_name == "DB.SCH.REAL_TABLE"
+
+
 def test_per_wh_timeout():
     c = MagicMock()
     c.fetchall.return_value = [("WH1",)]
