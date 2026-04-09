@@ -161,6 +161,24 @@ def test_zombie_user_never():
     assert len(ZombieUserCheck().check_online(c)) == 1
 
 
+def test_zombie_user_sso_downgrade():
+    """B5: severity is LOW when sso_enforced=True."""
+    from snowfort_audit.domain.rule_definitions import Severity
+    from snowfort_audit.domain.scan_context import ScanContext
+
+    ctx = ScanContext()
+    object.__setattr__(ctx, "sso_enforced", True)
+
+    users = (("INACTIVE_U", datetime.now(timezone.utc) - timedelta(days=120), datetime.now(timezone.utc) - timedelta(days=200)),)
+    object.__setattr__(ctx, "users", users)
+    object.__setattr__(ctx, "users_cols", {"name": 0, "last_success_login": 1, "created_on": 2})
+
+    c = MagicMock()
+    violations = ZombieUserCheck().check_online(c, scan_context=ctx)
+    assert len(violations) == 1
+    assert violations[0].severity == Severity.LOW
+
+
 def test_zombie_user_ok():
     c = MagicMock()
     c.description = [("name",), ("last_success_login",), ("created_on",)]

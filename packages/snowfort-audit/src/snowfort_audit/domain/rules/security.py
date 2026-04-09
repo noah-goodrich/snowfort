@@ -520,6 +520,9 @@ class ZombieUserCheck(Rule):
         scan_context: ScanContext | None = None,
         **_kw,
     ) -> list[Violation]:
+        # B5: When SSO is enforced, zombie accounts are lower risk (no password to steal).
+        sso_enforced = scan_context.sso_enforced if scan_context is not None else None
+        effective_severity = Severity.LOW if sso_enforced else self.severity
         violations = []
         try:
             if scan_context is not None and scan_context.users is not None:
@@ -547,7 +550,7 @@ class ZombieUserCheck(Rule):
                     created = _utc(user[cols["created_on"]])
                     if created and (now - created).days > self.NEVER_LOGGED_IN_THRESHOLD_DAYS:
                         violations.append(
-                            Violation(self.id, name, "User created >30 days ago but never logged in.", self.severity)
+                            Violation(self.id, name, "User created >30 days ago but never logged in.", effective_severity)
                         )
                     continue
 
@@ -555,7 +558,7 @@ class ZombieUserCheck(Rule):
                 if (now - last_login).days > self.INACTIVE_THRESHOLD_DAYS:
                     violations.append(
                         Violation(
-                            self.id, name, f"Zombie User: Inactive for {(now - last_login).days} days.", self.severity
+                            self.id, name, f"Zombie User: Inactive for {(now - last_login).days} days.", effective_severity
                         )
                     )
 
