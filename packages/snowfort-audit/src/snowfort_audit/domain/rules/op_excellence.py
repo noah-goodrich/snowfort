@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from snowfort_audit.domain.conventions import SnowfortConventions
 from snowfort_audit.domain.protocols import TelemetryPort
 from snowfort_audit.domain.rule_definitions import Rule, Severity, Violation, is_excluded_db_or_warehouse_name
+from snowfort_audit.domain.scan_context import TR_DOMAIN, TR_OBJECT_NAME, TR_TAG_NAME
 
 if TYPE_CHECKING:
     from snowfort_audit._vendor.protocols import SnowflakeCursorProtocol
@@ -58,15 +59,18 @@ class ResourceMonitorCheck(Rule):
             # Check warehouses without monitors (skip system/tool warehouses)
             if scan_context is not None and scan_context.warehouses is not None:
                 warehouses = list(scan_context.warehouses)
-                rm_idx = scan_context.warehouses_cols.get("resource_monitor", 16)
+                _wh_cols = scan_context.warehouses_cols
+                rm_idx = _wh_cols.get("resource_monitor", 16)
+                name_idx = _wh_cols.get("name", 0)
             else:
                 cursor.execute("SHOW WAREHOUSES")
                 wh_desc = cursor.description or []
-                wh_cols = {col[0].lower(): i for i, col in enumerate(wh_desc)}
+                _wh_cols = {col[0].lower(): i for i, col in enumerate(wh_desc)}
                 warehouses = cursor.fetchall()
-                rm_idx = wh_cols.get("resource_monitor", 16)
+                rm_idx = _wh_cols.get("resource_monitor", 16)
+                name_idx = _wh_cols.get("name", 0)
             for wh in warehouses:
-                wh_name = wh[0]
+                wh_name = wh[name_idx]
                 if is_excluded_db_or_warehouse_name(wh_name):
                     continue
                 wh_monitor = wh[rm_idx]  # 'resource_monitor' column
@@ -456,11 +460,11 @@ class IaCDriftReadinessCheck(Rule):
                         tagged.add((domain, obj_name))
         elif scan_context is not None and scan_context.tag_refs is not None:
             for row in scan_context.tag_refs:
-                domain = str(row[0]).upper()
+                domain = str(row[TR_DOMAIN]).upper()
                 if domain not in ("WAREHOUSE", "DATABASE"):
                     continue
-                if (row[2] or "").upper() in self.managed_by_tag_names:
-                    tagged.add((domain, str(row[1])))
+                if (row[TR_TAG_NAME] or "").upper() in self.managed_by_tag_names:
+                    tagged.add((domain, str(row[TR_OBJECT_NAME])))
         else:
             cursor.execute(
                 "SELECT DOMAIN, OBJECT_NAME, TAG_NAME"
@@ -474,7 +478,8 @@ class IaCDriftReadinessCheck(Rule):
 
     def _count_warehouses(self, cursor: SnowflakeCursorProtocol, scan_context: ScanContext | None) -> int:
         if scan_context is not None and scan_context.warehouses is not None:
-            return sum(1 for r in scan_context.warehouses if not is_excluded_db_or_warehouse_name(r[0]))
+            idx = scan_context.warehouses_cols.get("name", 0)
+            return sum(1 for r in scan_context.warehouses if not is_excluded_db_or_warehouse_name(r[idx]))
         cursor.execute("SHOW WAREHOUSES")
         return sum(1 for r in cursor.fetchall() if not is_excluded_db_or_warehouse_name(r[0]))
 

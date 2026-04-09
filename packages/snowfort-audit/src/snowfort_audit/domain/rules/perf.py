@@ -11,9 +11,14 @@ from snowfort_audit.domain.rule_definitions import (
     Violation,
     is_excluded_db_or_warehouse_name,
 )
-
-# Removed Infrastructure import
-
+from snowfort_audit.domain.scan_context import (
+    TC_BYTES,
+    TC_CLUSTERING_KEY,
+    TC_TABLE_CATALOG,
+    TC_TABLE_NAME,
+    TC_TABLE_SCHEMA,
+    TC_TABLE_TYPE,
+)
 
 CLUSTERING_DEPTH_THRESHOLD = 2.0
 ONE_TB_BYTES = 1099511627776
@@ -49,15 +54,14 @@ class ClusterKeyValidationCheck(Rule):
         violations = []
         try:
             if scan_context is not None and scan_context.tables is not None:
-                # cols: TABLE_CATALOG=0, TABLE_SCHEMA=1, TABLE_NAME=2, TABLE_TYPE=3, BYTES=4, CLUSTERING_KEY=8
                 # Cap at 20: each table fires SYSTEM$CLUSTERING_DEPTH — bound the N+1
                 tables = [
-                    (r[0], r[1], r[2], r[8])
+                    (r[TC_TABLE_CATALOG], r[TC_TABLE_SCHEMA], r[TC_TABLE_NAME], r[TC_CLUSTERING_KEY])
                     for r in scan_context.tables
-                    if r[3] == "BASE TABLE"
-                    and r[4] is not None
-                    and r[4] > ONE_TB_BYTES
-                    and not is_excluded_db_or_warehouse_name(r[0])
+                    if r[TC_TABLE_TYPE] == "BASE TABLE"
+                    and r[TC_BYTES] is not None
+                    and r[TC_BYTES] > ONE_TB_BYTES
+                    and not is_excluded_db_or_warehouse_name(r[TC_TABLE_CATALOG])
                 ][:20]
             else:
                 query = (
@@ -328,14 +332,13 @@ class ClusteringKeyQualityCheck(Rule):
     ) -> list[Violation]:
         try:
             if scan_context is not None and scan_context.tables is not None:
-                # cols: TABLE_CATALOG=0, TABLE_SCHEMA=1, TABLE_NAME=2, TABLE_TYPE=3, CLUSTERING_KEY=8
                 rows = [
-                    (r[0], r[1], r[2], r[8])
+                    (r[TC_TABLE_CATALOG], r[TC_TABLE_SCHEMA], r[TC_TABLE_NAME], r[TC_CLUSTERING_KEY])
                     for r in scan_context.tables
-                    if r[3] == "BASE TABLE"
-                    and r[8] is not None
-                    and str(r[8]).strip() != ""
-                    and not is_excluded_db_or_warehouse_name(r[0])
+                    if r[TC_TABLE_TYPE] == "BASE TABLE"
+                    and r[TC_CLUSTERING_KEY] is not None
+                    and str(r[TC_CLUSTERING_KEY]).strip() != ""
+                    and not is_excluded_db_or_warehouse_name(r[TC_TABLE_CATALOG])
                 ][:500]
             else:
                 query = (

@@ -11,9 +11,14 @@ from snowfort_audit.domain.rule_definitions import (
     Violation,
     is_excluded_db_or_warehouse_name,
 )
-
-# Removed Infrastructure import
-
+from snowfort_audit.domain.scan_context import (
+    TC_ENABLE_SCHEMA_EVOLUTION,
+    TC_RETENTION_TIME,
+    TC_TABLE_CATALOG,
+    TC_TABLE_NAME,
+    TC_TABLE_SCHEMA,
+    TC_TABLE_TYPE,
+)
 
 if TYPE_CHECKING:
     from snowfort_audit._vendor.protocols import SnowflakeCursorProtocol
@@ -121,14 +126,13 @@ class RetentionSafetyCheck(Rule):
     ) -> list[Violation]:
         try:
             if scan_context is not None and scan_context.tables is not None:
-                # cols: TABLE_CATALOG=0, TABLE_SCHEMA=1, TABLE_NAME=2, TABLE_TYPE=3, RETENTION_TIME=6
                 rows = [
                     r
                     for r in scan_context.tables
-                    if r[3] == "BASE TABLE"
-                    and r[6] == 0
-                    and ("PRD" in str(r[0]).upper() or "PROD" in str(r[0]).upper())
-                    and not is_excluded_db_or_warehouse_name(r[0])
+                    if r[TC_TABLE_TYPE] == "BASE TABLE"
+                    and r[TC_RETENTION_TIME] == 0
+                    and ("PRD" in str(r[TC_TABLE_CATALOG]).upper() or "PROD" in str(r[TC_TABLE_CATALOG]).upper())
+                    and not is_excluded_db_or_warehouse_name(r[TC_TABLE_CATALOG])
                 ][:50]
             else:
                 query = (
@@ -150,7 +154,7 @@ class RetentionSafetyCheck(Rule):
             return [
                 Violation(
                     self.id,
-                    f"{row[0]}.{row[1]}.{row[2]}",
+                    f"{row[TC_TABLE_CATALOG]}.{row[TC_TABLE_SCHEMA]}.{row[TC_TABLE_NAME]}",
                     "Production table has 0 days retention (Time Travel disabled).",
                     self.severity,
                 )
@@ -184,14 +188,13 @@ class AdequateTimeTravelRetentionCheck(Rule):
     ) -> list[Violation]:
         try:
             if scan_context is not None and scan_context.tables is not None:
-                # cols: TABLE_CATALOG=0, TABLE_SCHEMA=1, TABLE_NAME=2, TABLE_TYPE=3, RETENTION_TIME=6
                 rows = [
                     r
                     for r in scan_context.tables
-                    if r[3] == "BASE TABLE"
-                    and r[6] == 1
-                    and ("PRD" in str(r[0]).upper() or "PROD" in str(r[0]).upper())
-                    and not is_excluded_db_or_warehouse_name(r[0])
+                    if r[TC_TABLE_TYPE] == "BASE TABLE"
+                    and r[TC_RETENTION_TIME] == 1
+                    and ("PRD" in str(r[TC_TABLE_CATALOG]).upper() or "PROD" in str(r[TC_TABLE_CATALOG]).upper())
+                    and not is_excluded_db_or_warehouse_name(r[TC_TABLE_CATALOG])
                 ][:50]
             else:
                 query = (
@@ -212,7 +215,7 @@ class AdequateTimeTravelRetentionCheck(Rule):
                 rows = cursor.fetchall()
             return [
                 self.violation(
-                    f"{row[0]}.{row[1]}.{row[2]}",
+                    f"{row[TC_TABLE_CATALOG]}.{row[TC_TABLE_SCHEMA]}.{row[TC_TABLE_NAME]}",
                     "Production table has only 1-day Time Travel retention; consider 7+ days for critical data.",
                 )
                 for row in rows
@@ -262,11 +265,11 @@ class SchemaEvolutionCheck(Rule):
     ) -> list[Violation]:
         try:
             if scan_context is not None and scan_context.tables is not None:
-                # cols: TABLE_CATALOG=0, TABLE_SCHEMA=1, TABLE_NAME=2, ENABLE_SCHEMA_EVOLUTION=7
                 rows = [
                     r
                     for r in scan_context.tables
-                    if str(r[7] or "").upper() in ("YES", "TRUE", "1") and not is_excluded_db_or_warehouse_name(r[0])
+                    if str(r[TC_ENABLE_SCHEMA_EVOLUTION] or "").upper() in ("YES", "TRUE", "1")
+                    and not is_excluded_db_or_warehouse_name(r[TC_TABLE_CATALOG])
                 ][:50]
             else:
                 query = (
@@ -286,7 +289,7 @@ class SchemaEvolutionCheck(Rule):
             return [
                 Violation(
                     self.id,
-                    f"{row[0]}.{row[1]}.{row[2]}",
+                    f"{row[TC_TABLE_CATALOG]}.{row[TC_TABLE_SCHEMA]}.{row[TC_TABLE_NAME]}",
                     "Table has automatic schema evolution enabled.",
                     self.severity,
                 )

@@ -7,10 +7,10 @@ COST_001:
   severity: MEDIUM
 COST_002:
 - message: Warehouse has no recorded events/activity in the last 7 days.
-  resource: '2024-01-01'
+  resource: BAD_COST_WH
   severity: HIGH
 - message: Warehouse has no recorded events/activity in the last 7 days.
-  resource: '2024-01-01'
+  resource: GOOD_WH
   severity: HIGH
 COST_003: []
 COST_004: []
@@ -80,11 +80,11 @@ OPS_011:
   severity: LOW
 OPS_012: []
 OP_001:
-- message: Warehouse '2024-01-01' has no Resource Monitor attached.
-  resource: '2024-01-01'
-  severity: MEDIUM
 - message: No Resource Monitors defined in account.
   resource: Account
+  severity: MEDIUM
+- message: Warehouse 'BAD_COST_WH' has no Resource Monitor attached.
+  resource: BAD_COST_WH
   severity: MEDIUM
 OP_002:
 - message: Database 'MY_APP_DB' is missing a comment/description.

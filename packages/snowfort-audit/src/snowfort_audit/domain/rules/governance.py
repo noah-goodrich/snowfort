@@ -10,6 +10,12 @@ from snowfort_audit.domain.rule_definitions import (
     Violation,
     is_excluded_db_or_warehouse_name,
 )
+from snowfort_audit.domain.scan_context import (
+    TC_COMMENT,
+    TC_TABLE_CATALOG,
+    TC_TABLE_NAME,
+    TC_TABLE_SCHEMA,
+)
 
 if TYPE_CHECKING:
     from snowfort_audit._vendor.protocols import SnowflakeCursorProtocol
@@ -112,13 +118,12 @@ class ObjectDocumentationCheck(Rule):
     ) -> list[Violation]:
         try:
             if scan_context is not None and scan_context.tables is not None:
-                # cols: TABLE_CATALOG=0, TABLE_SCHEMA=1, TABLE_NAME=2, COMMENT=9
                 rows = [
-                    (r[1], r[2])
+                    (r[TC_TABLE_SCHEMA], r[TC_TABLE_NAME])
                     for r in scan_context.tables
-                    if "PROD" in str(r[0]).upper()
-                    and (r[9] is None or str(r[9]) == "")
-                    and not is_excluded_db_or_warehouse_name(r[0])
+                    if "PROD" in str(r[TC_TABLE_CATALOG]).upper()
+                    and (r[TC_COMMENT] is None or str(r[TC_COMMENT]) == "")
+                    and not is_excluded_db_or_warehouse_name(r[TC_TABLE_CATALOG])
                 ][:20]
             else:
                 query = (

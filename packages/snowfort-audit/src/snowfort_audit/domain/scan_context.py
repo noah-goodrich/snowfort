@@ -4,13 +4,16 @@ Created once before rules run in OnlineScanUseCase; passed to each rule via
 check_online(cursor, scan_context=ctx).  Read-only by convention — workers
 hold references to the same immutable data.
 
-Column indices for tag_refs rows:
-    0=DOMAIN  1=OBJECT_NAME  2=TAG_NAME  3=TAG_VALUE  4=COLUMN_NAME
+Named column indices for ACCOUNT_USAGE.TAG_REFERENCES rows (TR_*):
+    TR_DOMAIN=0  TR_OBJECT_NAME=1  TR_TAG_NAME=2  TR_TAG_VALUE=3  TR_COLUMN_NAME=4
 
-Column indices for tables rows:
-    0=TABLE_CATALOG  1=TABLE_SCHEMA  2=TABLE_NAME  3=TABLE_TYPE
-    4=BYTES  5=ROW_COUNT  6=RETENTION_TIME  7=ENABLE_SCHEMA_EVOLUTION
-    8=CLUSTERING_KEY  9=COMMENT
+Named column indices for ACCOUNT_USAGE.TABLES rows (TC_*):
+    TC_TABLE_CATALOG=0  TC_TABLE_SCHEMA=1  TC_TABLE_NAME=2  TC_TABLE_TYPE=3
+    TC_BYTES=4  TC_ROW_COUNT=5  TC_RETENTION_TIME=6  TC_ENABLE_SCHEMA_EVOLUTION=7
+    TC_CLUSTERING_KEY=8  TC_COMMENT=9
+
+For SHOW command data (warehouses, users, databases, roles), use ScanContext.col()
+with the corresponding *_cols dict to look up columns by name.
 """
 
 from __future__ import annotations
@@ -22,6 +25,33 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 Row = tuple[Any, ...]
+
+# ---------------------------------------------------------------------------
+# Named column indices for scan_context.tag_refs (ACCOUNT_USAGE.TAG_REFERENCES)
+# Use these constants instead of magic integer literals when filtering tag_refs.
+# ---------------------------------------------------------------------------
+TR_DOMAIN = 0
+TR_OBJECT_NAME = 1
+TR_TAG_NAME = 2
+TR_TAG_VALUE = 3
+TR_COLUMN_NAME = 4
+
+# ---------------------------------------------------------------------------
+# Named column indices for scan_context.tables (ACCOUNT_USAGE.TABLES)
+# Use these constants instead of magic integer literals when filtering tables.
+# The SQL fallback queries in each rule always SELECT columns in this order,
+# so the constants are valid for both the prefetch path and the cursor path.
+# ---------------------------------------------------------------------------
+TC_TABLE_CATALOG = 0
+TC_TABLE_SCHEMA = 1
+TC_TABLE_NAME = 2
+TC_TABLE_TYPE = 3
+TC_BYTES = 4
+TC_ROW_COUNT = 5
+TC_RETENTION_TIME = 6
+TC_ENABLE_SCHEMA_EVOLUTION = 7
+TC_CLUSTERING_KEY = 8
+TC_COMMENT = 9
 
 
 @dataclass
@@ -84,3 +114,24 @@ class ScanContext:
         if key not in self._fetch_cache:
             self._fetch_cache[key] = fetcher(view, window_days)
         return self._fetch_cache[key]
+
+    def col(self, row: Row, cols: dict[str, int], name: str) -> Any:
+        """Return a named column value from a SHOW-command row.
+
+        Provides a self-documenting alternative to magic integer indices for
+        data fetched via SHOW commands (warehouses, users, databases, roles),
+        where column positions are determined at runtime from cursor.description.
+
+        Args:
+            row: A result row tuple from a SHOW command.
+            cols: Column-name → index dict (e.g. ``self.warehouses_cols``).
+            name: Column name exactly as it appears in the dict keys.
+
+        Returns:
+            The column value at the resolved index.
+
+        Example::
+
+            name = ctx.col(wh, ctx.warehouses_cols, "name")
+        """
+        return row[cols[name]]

@@ -13,6 +13,7 @@ from snowfort_audit.domain.rule_definitions import (
     Violation,
     is_excluded_db_or_warehouse_name,
 )
+from snowfort_audit.domain.scan_context import TR_DOMAIN, TR_OBJECT_NAME, TR_TAG_NAME, TR_TAG_VALUE
 
 if TYPE_CHECKING:
     from snowfort_audit._vendor.protocols import SnowflakeCursorProtocol
@@ -91,12 +92,15 @@ class AggressiveAutoSuspendCheck(Rule):
         try:
             env_tags = self._get_warehouse_env_tags(cursor, scan_context)
             if scan_context is not None and scan_context.warehouses is not None:
-                warehouses = [wh for wh in scan_context.warehouses if not is_excluded_db_or_warehouse_name(wh[0])]
                 cols = scan_context.warehouses_cols
+                name_idx = cols.get("name", 0)
+                warehouses = [wh for wh in scan_context.warehouses if not is_excluded_db_or_warehouse_name(wh[name_idx])]
             else:
                 cursor.execute("SHOW WAREHOUSES")
-                warehouses = [wh for wh in cursor.fetchall() if not is_excluded_db_or_warehouse_name(wh[0])]
+                rows_raw = cursor.fetchall()
                 cols = {col[0].lower(): i for i, col in enumerate(cursor.description)}
+                name_idx = cols.get("name", 0)
+                warehouses = [wh for wh in rows_raw if not is_excluded_db_or_warehouse_name(wh[name_idx])]
 
             for wh in warehouses:
                 violations.extend(self._check_warehouse_suspension(wh, cols, env_tags))
@@ -116,8 +120,8 @@ class AggressiveAutoSuspendCheck(Rule):
                         env_tags[obj_name] = tags["ENVIRONMENT"].upper()
             elif scan_context is not None and scan_context.tag_refs is not None:
                 for row in scan_context.tag_refs:
-                    if str(row[0]).upper() == "WAREHOUSE" and str(row[2]).upper() == "ENVIRONMENT" and row[3]:
-                        env_tags[str(row[1]).upper()] = str(row[3]).upper()
+                    if str(row[TR_DOMAIN]).upper() == "WAREHOUSE" and str(row[TR_TAG_NAME]).upper() == "ENVIRONMENT" and row[TR_TAG_VALUE]:
+                        env_tags[str(row[TR_OBJECT_NAME]).upper()] = str(row[TR_TAG_VALUE]).upper()
             else:
                 tag_query = """
                 SELECT OBJECT_NAME, TAG_VALUE
@@ -215,14 +219,17 @@ class ZombieWarehouseCheck(Rule):
 
             # Get all warehouses to compare (exclude system/tool)
             if scan_context is not None and scan_context.warehouses is not None:
-                all_warehouses = [wh for wh in scan_context.warehouses if not is_excluded_db_or_warehouse_name(wh[0])]
+                _wh_name_idx = scan_context.warehouses_cols.get("name", 0)
+                all_warehouses = [wh for wh in scan_context.warehouses if not is_excluded_db_or_warehouse_name(wh[_wh_name_idx])]
             else:
                 cursor.execute("SHOW WAREHOUSES")
-                all_warehouses = [wh for wh in cursor.fetchall() if not is_excluded_db_or_warehouse_name(wh[0])]
+                _wh_rows = cursor.fetchall()
+                _wh_name_idx = {c[0].lower(): i for i, c in enumerate(cursor.description)}.get("name", 0)
+                all_warehouses = [wh for wh in _wh_rows if not is_excluded_db_or_warehouse_name(wh[_wh_name_idx])]
 
             violations = []
             for wh in all_warehouses:
-                name = wh[0]
+                name = wh[_wh_name_idx]
                 # state = wh[1] # Unused
 
                 # If warehouse exists but not in active list (and presumably we want to flag it)
@@ -503,13 +510,15 @@ class PerWarehouseStatementTimeoutCheck(Rule):
         violations = []
         try:
             if scan_context is not None and scan_context.warehouses is not None:
-                warehouses = [wh for wh in scan_context.warehouses if not is_excluded_db_or_warehouse_name(wh[0])]
                 cols = scan_context.warehouses_cols
+                name_idx = cols.get("name", 0)
+                warehouses = [wh for wh in scan_context.warehouses if not is_excluded_db_or_warehouse_name(wh[name_idx])]
             else:
                 cursor.execute("SHOW WAREHOUSES")
-                warehouses = [wh for wh in cursor.fetchall() if not is_excluded_db_or_warehouse_name(wh[0])]
+                _raw = cursor.fetchall()
                 cols = {col[0].lower(): i for i, col in enumerate(cursor.description)}
-            name_idx = cols["name"]
+                name_idx = cols.get("name", 0)
+                warehouses = [wh for wh in _raw if not is_excluded_db_or_warehouse_name(wh[name_idx])]
 
             # Batch: account-level default (1 query) + warehouse overrides via OBJECT_PARAMETERS (1 query)
             cursor.execute("SHOW PARAMETERS LIKE 'STATEMENT_TIMEOUT_IN_SECONDS' IN ACCOUNT")
