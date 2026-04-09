@@ -3,7 +3,7 @@ from typing import Any, Protocol
 from snowfort_audit._vendor.protocols import FileSystemProtocol, TelemetryPort
 
 from .models import PricingConfig
-from .results import AuditResult
+from .results import AuditResult, CortexSummary
 
 __all__ = [
     "AuditRepositoryProtocol",
@@ -68,7 +68,10 @@ class AISynthesizerProtocol(Protocol):
     """Protocol for synthesis of findings using AI."""
 
     def summarize(self, violations: list) -> str:
-        """Provide executive summary."""
+        """Provide executive summary as plain text."""
+
+    def summarize_structured(self, violations: list) -> CortexSummary:
+        """Provide structured executive summary."""
 
 
 class RemediationProtocol(Protocol):

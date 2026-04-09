@@ -133,10 +133,27 @@ class AuditScorecard:
 
 
 @dataclass(frozen=True)
+class CortexSummary:
+    """Structured Cortex executive summary persisted in the YAML report."""
+
+    tl_dr: str = ""
+    top_risks: list[str] = field(default_factory=list)
+    quick_wins: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "tl_dr": self.tl_dr,
+            "top_risks": list(self.top_risks),
+            "quick_wins": list(self.quick_wins),
+        }
+
+
+@dataclass(frozen=True)
 class AuditResult:
     violations: list[Violation] = field(default_factory=list)
     scorecard: AuditScorecard = field(default_factory=AuditScorecard)
     metadata: dict = field(default_factory=dict)
+    cortex_summary: "CortexSummary | None" = field(default=None)
 
     @classmethod
     def from_violations(

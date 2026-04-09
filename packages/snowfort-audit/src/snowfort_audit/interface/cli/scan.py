@@ -8,7 +8,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from snowfort_audit.domain.results import AuditResult
+from snowfort_audit.domain.results import AuditResult, CortexSummary
 from snowfort_audit.interface.cli import (
     _connection_error_hint,
     _prompt_account_config,
@@ -46,21 +46,32 @@ def _after_scan_report(
     if rule_filter and not rules:
         telemetry.warning("No rules matched the given --rule ID(s). Run 'snowfort audit rules' to list valid IDs.")
     if cortex and gateway and not manifest:
-        _run_cortex_summary(container, gateway, violations)
+        cortex_summary = _run_cortex_summary(container, gateway, violations)
+        if cortex_summary is not None:
+            import dataclasses
+
+            result = dataclasses.replace(result, cortex_summary=cortex_summary)
+            try:
+                write_audit_cache(Path(path).resolve(), result, target_name)
+            except OSError:
+                pass
     return bool(violations and offline)
 
 
-def _run_cortex_summary(container, gateway, violations: list) -> None:
-    """Print Cortex executive summary panel if gateway and violations available."""
+def _run_cortex_summary(container, gateway, violations: list) -> CortexSummary | None:
+    """Print Cortex executive summary panel and return the structured summary."""
     connection_error_type = container.get("ConnectionErrorType")
     try:
         cur = gateway.get_cursor()
         SynthesizerClass = container.get("CortexSynthesizerClass")
         syn = SynthesizerClass(cur)
-        Console().print(Panel(syn.summarize(violations), title="Executive Summary (Cortex)", border_style="cyan"))
+        summary: CortexSummary = syn.summarize_structured(violations)
+        Console().print(Panel(summary.tl_dr or "No findings.", title="Executive Summary (Cortex)", border_style="cyan"))
+        return summary
     except (connection_error_type, RuntimeError) as exc:
         telemetry = container.get("TelemetryPort")
         telemetry.error(f"Cortex summary failed: {exc}")
+        return None
 
 
 def _fmt_duration(seconds: float) -> str:

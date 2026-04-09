@@ -223,7 +223,7 @@ def test_sensitive_data_exc():
 
 def test_cortex_empty():
     c = MagicMock()
-    assert CortexSynthesizer(c).summarize([]) == "No content to summarize."
+    assert "No violations" in CortexSynthesizer(c).summarize([])
 
 
 def test_cortex_summarize():

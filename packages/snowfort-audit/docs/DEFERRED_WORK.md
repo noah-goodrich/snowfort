@@ -95,10 +95,10 @@ The audit tool’s role is to **diagnose** (scan, report, export findings). Down
 | — | `show --re-scan`, account_id, severity doc links | **Done** | Implemented |
 | — | Rename `rules` → `catalog` | Optional | Product/UX preference |
 | 1 | Monorepo & fix commands rationale | Doc only | README/roadmap cleanup for fix; fixes = IaC via admin/scaffold |
-| 2 | Cortex Code Skill using snowfort | Deferred | SKILL.md + instructions to run audit and use manifest |
-| 3 | Cortex call for executive summary report | Deferred | Verify/extend Cortex call; optionally add summary to YAML |
+| 2 | Cortex Code Skill using snowfort | **Done (v0.4.0)** | `.cortex/skills/snowfort-audit/SKILL.md` ships in repo |
+| 3 | Cortex call for executive summary report | **Done (v0.4.0)** | `CortexSummary` dataclass; `cortex_summary:` block in YAML; `CortexSynthesizer.summarize_structured()` |
 | 4 | Monorepo migration + PyPI deployment | Deferred | See [MONOREPO_AND_PYPI.md](MONOREPO_AND_PYPI.md) |
 
 ---
 
-*Last updated: 2026-02 (post implementation of re-scan, account_id, severity links; doc updated with monorepo, fix, Cortex, and migration items).*
+*Last updated: 2026-04-09 (v0.4.0: F1 Cortex Code Skill + F2 CortexSummary YAML export shipped).*

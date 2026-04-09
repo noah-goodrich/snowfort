@@ -45,7 +45,30 @@ if ! grep -q "Profile" /tmp/snowfort_smoke_seq.log && ! grep -q "profile" /tmp/s
 fi
 
 echo ""
+echo "--- Step 5: Rule ID spot-checks ---"
+# Rules that must fire given the seeded objects.
+EXPECTED_RULES=(
+    "COST_001"   # AggressiveAutoSuspendCheck — seeded warehouses have no auto_suspend
+    "OPS_001"    # MandatoryTaggingCheck — seeded warehouses have no tags
+    "GOV_004"    # ObjectDocumentationCheck — SNOWFORT_TEST_UNDOCUMENTED_DB
+)
+WARN_COUNT=0
+for RULE in "${EXPECTED_RULES[@]}"; do
+    if ! grep -q "$RULE" /tmp/snowfort_smoke_par.log; then
+        echo "WARN: Expected rule $RULE not found in parallel scan output"
+        WARN_COUNT=$((WARN_COUNT + 1))
+    else
+        echo "OK: $RULE found"
+    fi
+done
+if [ $WARN_COUNT -gt 0 ]; then
+    echo ""
+    echo "WARN: $WARN_COUNT expected rule(s) not found. Check /tmp/snowfort_smoke_par.log."
+fi
+
+echo ""
 echo "PASS: Both scans completed successfully."
 echo "Review logs at /tmp/snowfort_smoke_seq.log and /tmp/snowfort_smoke_par.log"
 echo ""
+echo "Note: Cortex cost rules (COST_016-033) are unit-test only — seeding real Cortex usage incurs credits."
 echo "To clean up test objects: snowfort audit demo-teardown (or run demo_teardown.sql manually)"

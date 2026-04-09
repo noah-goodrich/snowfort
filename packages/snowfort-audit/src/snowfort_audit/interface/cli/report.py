@@ -465,5 +465,6 @@ def build_yaml_report(
                 },
             },
             "findings": findings,
+            **({"cortex_summary": result.cortex_summary.to_dict()} if result.cortex_summary else {}),
         }
     }
