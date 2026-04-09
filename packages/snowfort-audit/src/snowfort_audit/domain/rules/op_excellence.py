@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import fnmatch
 from typing import TYPE_CHECKING
 
+from snowfort_audit.domain.conventions import SnowfortConventions
 from snowfort_audit.domain.protocols import TelemetryPort
 from snowfort_audit.domain.rule_definitions import Rule, Severity, Violation, is_excluded_db_or_warehouse_name
 
@@ -146,11 +148,15 @@ class ObjectCommentCheck(Rule):
 class MandatoryTaggingCheck(Rule):
     """OPS_001: Ensure critical resources have mandatory tags (Cost Center, Owner, Environment)."""
 
-    def __init__(self, telemetry: TelemetryPort | None = None):
+    def __init__(
+        self,
+        conventions: SnowfortConventions | None = None,
+        telemetry: TelemetryPort | None = None,
+    ):
         super().__init__(
             "OPS_001",
             "Mandatory Tagging",
-            Severity.HIGH,
+            Severity.MEDIUM,
             rationale="Missing tags for Cost Center or Owner makes financial accountability impossible, preventing accurate chargebacks and causing operational blindness.",
             remediation=(
                 "Apply tags using: 'ALTER WAREHOUSE <name> SET TAG COST_CENTER = \"Value\"'. "
@@ -159,7 +165,13 @@ class MandatoryTaggingCheck(Rule):
             remediation_key="APPLY_MANDATORY_TAGS",
             telemetry=telemetry,
         )
+        self._conventions = conventions
         self.recommended_tags = {"COST_CENTER", "OWNER", "ENVIRONMENT"}
+
+    def _exclude_warehouse_patterns(self) -> tuple[str, ...]:
+        if self._conventions is not None:
+            return self._conventions.thresholds.mandatory_tagging.exclude_warehouse_patterns
+        return ("COMPUTE_SERVICE_WH_*",)
 
     def check_online(
         self,
@@ -183,10 +195,21 @@ class MandatoryTaggingCheck(Rule):
         return violations
 
     def _resolve_warehouse_names(self, cursor: SnowflakeCursorProtocol, scan_context: ScanContext | None) -> set[str]:
+        exclude_patterns = self._exclude_warehouse_patterns()
         if scan_context is not None and scan_context.warehouses is not None:
-            return {wh[0] for wh in scan_context.warehouses if not is_excluded_db_or_warehouse_name(wh[0])}
+            return {
+                wh[0]
+                for wh in scan_context.warehouses
+                if not is_excluded_db_or_warehouse_name(wh[0])
+                and not any(fnmatch.fnmatchcase(str(wh[0]).upper(), p.upper()) for p in exclude_patterns)
+            }
         cursor.execute("SHOW WAREHOUSES")
-        return {row[0] for row in cursor.fetchall() if not is_excluded_db_or_warehouse_name(row[0])}
+        return {
+            row[0]
+            for row in cursor.fetchall()
+            if not is_excluded_db_or_warehouse_name(row[0])
+            and not any(fnmatch.fnmatchcase(str(row[0]).upper(), p.upper()) for p in exclude_patterns)
+        }
 
     def _resolve_database_names(self, cursor: SnowflakeCursorProtocol, scan_context: ScanContext | None) -> set[str]:
         if scan_context is not None and scan_context.databases is not None:
@@ -231,7 +254,7 @@ class MandatoryTaggingCheck(Rule):
                     self.id,
                     f"{domain.title()} '{name}'",
                     "Object has ZERO tags. Governance failure.",
-                    Severity.CRITICAL,
+                    self.severity,
                     remediation_key=self.remediation_key,
                 )
             ]
@@ -242,7 +265,7 @@ class MandatoryTaggingCheck(Rule):
                     self.id,
                     f"{domain.title()} '{name}'",
                     f"Missing recommended WAF tags: {', '.join(missing)}",
-                    Severity.MEDIUM,
+                    self.severity,
                     remediation_key=self.remediation_key,
                 )
             ]

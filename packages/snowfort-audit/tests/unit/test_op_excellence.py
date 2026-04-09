@@ -72,6 +72,34 @@ def test_mandatory_tagging_exc():
     assert MandatoryTaggingCheck().check_online(c) == []
 
 
+def test_mandatory_tagging_severity_and_exclusion():
+    """B4: severity is MEDIUM; COMPUTE_SERVICE_WH_* warehouses are excluded by default."""
+    from snowfort_audit.domain.rule_definitions import Severity
+    from snowfort_audit.domain.scan_context import ScanContext
+
+    warehouses = (
+        ("ANALYTICS_WH",),           # should be flagged (no tags)
+        ("COMPUTE_SERVICE_WH_ETL",), # excluded by default pattern
+    )
+    ctx = ScanContext()
+    object.__setattr__(ctx, "warehouses", warehouses)
+    object.__setattr__(ctx, "warehouses_cols", {"name": 0})
+    object.__setattr__(ctx, "databases", ())
+    object.__setattr__(ctx, "databases_cols", {})
+    object.__setattr__(ctx, "tag_refs_index", {})  # no tags for anything
+
+    c = MagicMock()
+    rule = MandatoryTaggingCheck()
+    violations = rule.check_online(c, scan_context=ctx)
+
+    names = {v.resource_name for v in violations}
+    assert any("ANALYTICS_WH" in n for n in names), f"Expected ANALYTICS_WH in violations, got {names}"
+    assert not any("COMPUTE_SERVICE_WH" in n for n in names), "COMPUTE_SERVICE_WH_* should be excluded"
+
+    for v in violations:
+        assert v.severity == Severity.MEDIUM, f"Expected MEDIUM, got {v.severity}"
+
+
 def test_alert_config_no_alerts():
     c = MagicMock()
     c.fetchall.return_value = []

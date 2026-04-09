@@ -168,7 +168,7 @@ def get_all_rules(
         ResizeChurnCheck(telemetry=telemetry),
         ResourceMonitorCheck(telemetry=telemetry),
         ObjectCommentCheck(telemetry=telemetry),
-        MandatoryTaggingCheck(telemetry=telemetry),
+        MandatoryTaggingCheck(conventions=conventions, telemetry=telemetry),
         AlertConfigurationCheck(telemetry=telemetry),
         AlertExecutionReliabilityCheck(telemetry=telemetry),
         NotificationIntegrationCheck(telemetry=telemetry),
