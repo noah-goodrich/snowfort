@@ -17,7 +17,12 @@ from snowfort_audit.domain.account_config import (
     _default_config,
 )
 from snowfort_audit.domain.conventions import (
+    CortexThresholds,
+    HighChurnThresholds,
+    MandatoryTaggingThresholds,
     NamingConventions,
+    NetworkPerimeterThresholds,
+    RuleThresholdConventions,
     SecurityConventions,
     SnowfortConventions,
     TagConventions,
@@ -83,12 +88,22 @@ def get_financial_overrides_from_pyproject(project_root: Path | None = None) -> 
 
 
 def load_conventions(project_root: Path | None = None) -> SnowfortConventions:
-    """Load defaults, then overlay [tool.snowfort.conventions] from pyproject.toml."""
+    """Load defaults, then overlay [tool.snowfort.conventions] from pyproject.toml.
+
+    Supports nested threshold overrides via [tool.snowfort.conventions.thresholds]
+    and its sub-tables (high_churn, mandatory_tagging, network_perimeter, cortex).
+    """
     defaults = SnowfortConventions(
         warehouse=WarehouseConventions(),
         naming=NamingConventions(),
         security=SecurityConventions(),
         tags=TagConventions(),
+        thresholds=RuleThresholdConventions(
+            high_churn=HighChurnThresholds(),
+            mandatory_tagging=MandatoryTaggingThresholds(),
+            network_perimeter=NetworkPerimeterThresholds(),
+            cortex=CortexThresholds(),
+        ),
     )
     if project_root is None:
         project_root = Path.cwd()

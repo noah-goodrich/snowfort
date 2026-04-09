@@ -1,0 +1,176 @@
+COST_001:
+- message: Auto-suspend 600s exceeds Snowfort convention (1s).
+  resource: BAD_COST_WH
+  severity: MEDIUM
+- message: Auto-suspend 60s exceeds Snowfort convention (1s).
+  resource: GOOD_WH
+  severity: MEDIUM
+COST_002:
+- message: Warehouse has no recorded events/activity in the last 7 days.
+  resource: '2024-01-01'
+  severity: HIGH
+- message: Warehouse has no recorded events/activity in the last 7 days.
+  resource: '2024-01-01'
+  severity: HIGH
+COST_003: []
+COST_004: []
+COST_005: []
+COST_006: []
+COST_007: []
+COST_008: []
+COST_009:
+- message: Warehouse has no or default statement timeout (172800s). Set a sensible
+    limit.
+  resource: BAD_COST_WH
+  severity: MEDIUM
+- message: Warehouse has no or default statement timeout (172800s). Set a sensible
+    limit.
+  resource: GOOD_WH
+  severity: MEDIUM
+COST_010: []
+COST_011: []
+COST_012: []
+COST_013: []
+COST_014: []
+COST_015: []
+COST_016: []
+GOV_001: []
+GOV_002: []
+GOV_003:
+- message: Snowflake Budgets feature not found or not accessible.
+  resource: Account
+  severity: CRITICAL
+GOV_004: []
+OPS_001:
+- message: Object has ZERO tags. Governance failure.
+  resource: Database 'MY_APP_DB'
+  severity: CRITICAL
+- message: Object has ZERO tags. Governance failure.
+  resource: Warehouse '2024-01-01'
+  severity: CRITICAL
+OPS_003:
+- message: No Snowflake Alerts defined; configure alerts for key metrics and failures.
+  resource: Account
+  severity: LOW
+OPS_005: []
+OPS_006: []
+OPS_007:
+- message: No notification integration defined; create one to send alert notifications
+    (email, webhook, etc.).
+  resource: Account
+  severity: LOW
+OPS_008:
+- message: No dedicated observability/monitoring database found; consider OBSERVABILITY
+    or MONITORING db with views on ACCOUNT_USAGE.
+  resource: Account
+  severity: LOW
+OPS_009:
+- message: No warehouses have MANAGED_BY (or similar) tag; add tag for IaC/drift detection.
+  resource: Account
+  severity: LOW
+OPS_010:
+- message: No customer-owned event table configured; event tables enable centralized
+    monitoring for tasks, UDFs, and stored procedures.
+  resource: Account
+  severity: LOW
+OPS_011:
+- message: No Data Metric Functions (DMF) references found; DMFs help monitor data
+    quality and detect anomalies in tables.
+  resource: Account
+  severity: LOW
+OPS_012: []
+OP_001:
+- message: Warehouse '2024-01-01' has no Resource Monitor attached.
+  resource: '2024-01-01'
+  severity: MEDIUM
+- message: No Resource Monitors defined in account.
+  resource: Account
+  severity: MEDIUM
+OP_002:
+- message: Database 'MY_APP_DB' is missing a comment/description.
+  resource: MY_APP_DB
+  severity: LOW
+PERF_001: []
+PERF_002: []
+PERF_003: []
+PERF_003_SMART: []
+PERF_004: []
+PERF_005: []
+PERF_006: []
+PERF_007: []
+PERF_008: []
+PERF_009: []
+PERF_010: []
+PERF_011: []
+PERF_012: []
+PERF_013: []
+REL_001: []
+REL_002: []
+REL_003: []
+REL_004: []
+REL_005: []
+REL_006: []
+REL_007: []
+REL_008: []
+SEC_001:
+- message: 'Too few ACCOUNTADMINs: only 0 detected. Recommend at least 2 for redundancy.'
+  resource: Account
+  severity: MEDIUM
+SEC_002: []
+SEC_003:
+- message: No Account-level Network Policy set
+  resource: Account
+  severity: CRITICAL
+SEC_004: []
+SEC_005: []
+SEC_006: []
+SEC_007: []
+SEC_007_ROLE: []
+SEC_007_USER: []
+SEC_008:
+- message: Role 'APP_ROLE' is Empty (no privileges or roles assigned to it).
+  resource: APP_ROLE
+  severity: LOW
+- message: Role 'APP_ROLE' is an Orphan (not granted to any User or Role).
+  resource: APP_ROLE
+  severity: LOW
+- message: Role 'ORPHAN_ROLE' is Empty (no privileges or roles assigned to it).
+  resource: ORPHAN_ROLE
+  severity: LOW
+- message: Role 'ORPHAN_ROLE' is an Orphan (not granted to any User or Role).
+  resource: ORPHAN_ROLE
+  severity: LOW
+SEC_008_ROLE: []
+SEC_008_USER: []
+SEC_009: []
+SEC_010: []
+SEC_011: []
+SEC_012:
+- message: No password policy defined in account; define and apply one for authentication
+    hardening.
+  resource: Account
+  severity: MEDIUM
+SEC_013: []
+SEC_014:
+- message: No network policy defined; consider restricting access via network policies
+    or private connectivity.
+  resource: Account
+  severity: LOW
+SEC_015: []
+SEC_016:
+- message: REQUIRE_MFA_FOR_ALL_USERS parameter not found or not set; enable MFA for
+    all users.
+  resource: Account
+  severity: CRITICAL
+SEC_017:
+- message: CIS Snowflake Benchmark scanner package not found or not enabled in Trust
+    Center; enable it for security posture.
+  resource: Account
+  severity: MEDIUM
+SQL_001: []
+STAT_001: []
+STAT_002: []
+STAT_003: []
+STAT_004: []
+STAT_005: []
+STAT_006: []

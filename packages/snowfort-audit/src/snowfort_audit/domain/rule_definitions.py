@@ -85,6 +85,54 @@ class Severity(Enum):
     LOW = "LOW"
 
 
+class FindingStatus(Enum):
+    """Outcome of a single rule execution."""
+
+    PASS = "PASS"
+    VIOLATION = "VIOLATION"
+    ERRORED = "ERRORED"
+
+
+# Snowflake error numbers that rules may silently swallow (return [] without raising).
+# Only object-not-found (errno 2003) is allowed — views that may legitimately not exist
+# on older Snowflake accounts. All other errors must propagate as RuleExecutionError.
+_ALLOWLISTED_SF_ERRNOS: frozenset[int] = frozenset({2003})
+
+
+class RuleExecutionError(Exception):
+    """Raised by a rule when an unexpected error occurs during check_online.
+
+    OnlineScanUseCase catches this and records an ERRORED finding.
+    Rules must NOT silently catch exceptions — use is_allowlisted_sf_error()
+    to check whether a SnowflakeProgrammingError may be swallowed.
+
+    Usage in a rule::
+
+        try:
+            cursor.execute(sql)
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
+    """
+
+    def __init__(self, rule_id: str, message: str, cause: BaseException | None = None):
+        super().__init__(message)
+        self.rule_id = rule_id
+        if cause is not None:
+            self.__cause__ = cause
+
+
+def is_allowlisted_sf_error(exc: BaseException) -> bool:
+    """Return True if this Snowflake error is allowlisted (view/object not found).
+
+    Rules may return [] silently for allowlisted errors.
+    All other exceptions should be re-raised as RuleExecutionError.
+    """
+    errno = getattr(exc, "errno", None)
+    return isinstance(errno, int) and errno in _ALLOWLISTED_SF_ERRNOS
+
+
 @dataclass(frozen=True)
 class Violation:
     rule_id: str
