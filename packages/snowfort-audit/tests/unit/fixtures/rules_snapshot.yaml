@@ -34,6 +34,27 @@ COST_013: []
 COST_014: []
 COST_015: []
 COST_016: []
+COST_017: []
+COST_018: []
+COST_019: []
+COST_020: []
+COST_021: []
+COST_022:
+- message: No Cortex Code CLI usage detected in the last 30 days. Review whether any
+    users still hold SNOWFLAKE.CORTEX_USER role.
+  resource: Account
+  severity: LOW
+COST_023: []
+COST_024: []
+COST_025: []
+COST_026: []
+COST_027: []
+COST_028: []
+COST_029: []
+COST_030: []
+COST_031: []
+COST_032: []
+COST_033: []
 GOV_001: []
 GOV_002: []
 GOV_003:

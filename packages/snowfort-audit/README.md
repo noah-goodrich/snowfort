@@ -1,6 +1,6 @@
 # Snowfort Audit: Snowflake WAF Scorecard
 
-**Snowfort Audit** is a Policy-as-Code (PaC) and **Well-Architected Framework (WAF)** compliance tool for Snowflake. It audits your Snowflake environment against 83 deterministic rules across Security, Cost, Performance, Reliability, Operations, and Governance — through both static analysis and runtime inspection.
+**Snowfort Audit** is a Policy-as-Code (PaC) and **Well-Architected Framework (WAF)** compliance tool for Snowflake. It audits your Snowflake environment against **116 deterministic rules** across Security, Cost, Performance, Reliability, Operations, and Governance — through both static analysis and runtime inspection.
 
 ## Key Concepts
 
@@ -16,16 +16,18 @@ Snowarch Audit acts as a **deterministic verification layer**: it reliably ident
 
 ---
 
-## Rule Suite — 83 rules across 7 WAF-aligned categories
+## Rule Suite — 116 rules across 7 WAF-aligned categories
+
+> **v0.4.0** adds 26 new rules: 18 Cortex AI cost governance rules (COST_016–033), 8 additional coverage rules (Dynamic Tables, Data Sharing, Permifrost drift, sandbox sprawl, cross-region inference), and 7 Q1 2026 feature rules (PAT governance, AI_REDACT, authorization policies, Trust Center, PrivateLink, SPCS, Iceberg).
 
 | Category | Rules | Key Checks |
 |:---|:---|:---|
-| **Cost Optimization** | 17 | Zombie warehouses, auto-suspend, elephant queries, statement timeouts, QAS eligibility, materialized view waste, data transfer, clustering/SOS cost-benefit |
-| **Security** | 20 | Admin exposure, MFA enforcement, network perimeter, public grants, service user key-pair, scope isolation, read-only integrity, masking/RAP coverage, SSO, CIS scanner |
+| **Cost Optimization** | 35 | Zombie warehouses, auto-suspend, Cortex AI/Code/Agents/Search/Analyst cost governance, credit budgets, model allowlists, per-user quotas |
+| **Security** | 26 | Admin exposure (graph reachability), MFA, network perimeter, PAT governance, AI_REDACT coverage, authorization policies, Trust Center, PrivateLink enforcement, SPCS security |
 | **Performance** | 15 | Remote/local spillage, workload efficiency "Pincer", cache contention, query queuing, partition pruning, clustering quality, Dynamic Table lag, Gen2/Snowpark pivot |
-| **Operations** | 12 | Resource monitors, mandatory tagging, IaC drift readiness, alert configuration, observability infrastructure, event tables, Data Metric Functions |
-| **Reliability** | 8 | Replication gaps, retention safety, failover completeness, replication lag, failed tasks, pipeline replication |
-| **Governance** | 4 | Future grants anti-pattern, object documentation, account budget enforcement, sensitive data classification |
+| **Operations** | 14 | Resource monitors, mandatory tagging, IaC drift readiness, Permifrost spec drift, developer sandbox sprawl, alert configuration, observability infrastructure |
+| **Reliability** | 10 | Replication gaps, retention safety, failover completeness, Dynamic Table refresh lag and failure detection |
+| **Governance** | 9 | Future grants anti-pattern, object documentation, account budget, sensitive data classification, Iceberg governance, inbound/outbound share risk, cross-region inference |
 | **Static Analysis** | 7 | Hardcoded secrets, naked DROP statements, SQL anti-patterns, MERGE pattern, Dynamic Table complexity |
 
 The full rule catalog with IDs, severities, and modes is in [`docs/RULES_CATALOG.md`](docs/RULES_CATALOG.md).
