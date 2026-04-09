@@ -199,7 +199,11 @@ class MandatoryTaggingCheck(Rule):
         self, cursor: SnowflakeCursorProtocol, scan_context: ScanContext | None
     ) -> dict[tuple[str, str], set[str]]:
         tagged: dict[tuple[str, str], set[str]] = {}
-        if scan_context is not None and scan_context.tag_refs is not None:
+        if scan_context is not None and scan_context.tag_refs_index is not None:
+            for (domain, obj_name), tags in scan_context.tag_refs_index.items():
+                if domain in ("WAREHOUSE", "DATABASE"):
+                    tagged[(domain, obj_name)] = set(tags.keys())
+        elif scan_context is not None and scan_context.tag_refs is not None:
             for row in scan_context.tag_refs:
                 domain = str(row[0]).upper()
                 if domain not in ("WAREHOUSE", "DATABASE"):
@@ -422,7 +426,12 @@ class IaCDriftReadinessCheck(Rule):
         self, cursor: SnowflakeCursorProtocol, scan_context: ScanContext | None
     ) -> set[tuple[str, str]]:
         tagged: set[tuple[str, str]] = set()
-        if scan_context is not None and scan_context.tag_refs is not None:
+        if scan_context is not None and scan_context.tag_refs_index is not None:
+            for (domain, obj_name), tags in scan_context.tag_refs_index.items():
+                if domain in ("WAREHOUSE", "DATABASE"):
+                    if any(t in self.managed_by_tag_names for t in tags):
+                        tagged.add((domain, obj_name))
+        elif scan_context is not None and scan_context.tag_refs is not None:
             for row in scan_context.tag_refs:
                 domain = str(row[0]).upper()
                 if domain not in ("WAREHOUSE", "DATABASE"):

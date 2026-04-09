@@ -98,9 +98,12 @@ class AggressiveAutoSuspendCheck(Rule):
         """Fetches ENVIRONMENT tags for all warehouses."""
         env_tags: dict[str, str] = {}
         try:
-            if scan_context is not None and scan_context.tag_refs is not None:
+            if scan_context is not None and scan_context.tag_refs_index is not None:
+                for (domain, obj_name), tags in scan_context.tag_refs_index.items():
+                    if domain == "WAREHOUSE" and "ENVIRONMENT" in tags and tags["ENVIRONMENT"]:
+                        env_tags[obj_name] = tags["ENVIRONMENT"].upper()
+            elif scan_context is not None and scan_context.tag_refs is not None:
                 for row in scan_context.tag_refs:
-                    # row: DOMAIN=0, OBJECT_NAME=1, TAG_NAME=2, TAG_VALUE=3, COLUMN_NAME=4
                     if str(row[0]).upper() == "WAREHOUSE" and str(row[2]).upper() == "ENVIRONMENT" and row[3]:
                         env_tags[str(row[1]).upper()] = str(row[3]).upper()
             else:

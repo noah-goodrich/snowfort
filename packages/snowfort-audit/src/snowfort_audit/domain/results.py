@@ -1,3 +1,4 @@
+import math
 import statistics
 from dataclasses import dataclass, field
 
@@ -7,6 +8,11 @@ from snowfort_audit.domain.rule_definitions import (
     Violation,
     pillar_from_rule_id,
 )
+
+# Dampening constant for log-scaled scoring.  Calibrated so that ~454 real
+# violations across multiple pillars (the INCLOUDCOUNSEL baseline) produce an
+# overall score in the 55-65 range (D/C boundary).
+_LOG_DAMPENING_K = 10.0
 
 
 def _score_to_grade(score: float) -> str:
@@ -23,8 +29,74 @@ def _score_to_grade(score: float) -> str:
 
 
 def _pillar_deduction(critical: int, high: int, medium: int, low: int) -> int:
-    """Same deduction formula as overall: Critical -10, High -5, Medium -2, Low -1."""
+    """Raw severity-weighted deduction (unbounded). Used as input to log dampening."""
     return (critical * 10) + (high * 5) + (medium * 2) + (low * 1)
+
+
+def _pillar_score(critical: int, high: int, medium: int, low: int) -> float:
+    """Compute a 0-100 pillar score using logarithmic dampening.
+
+    Formula: ``score = max(0, 100 - min(100, K * ln(1 + raw)))``
+    where ``raw = critical*10 + high*5 + medium*2 + low*1``.
+
+    This prevents high-volume, low-severity violations from instantly flooring
+    the score while still penalising critical findings heavily.
+    """
+    raw = _pillar_deduction(critical, high, medium, low)
+    if raw == 0:
+        return 100.0
+    dampened = min(100.0, _LOG_DAMPENING_K * math.log(1 + raw))
+    return max(0.0, 100.0 - dampened)
+
+
+_SEV_INDEX = {Severity.CRITICAL: 0, Severity.HIGH: 1, Severity.MEDIUM: 2, Severity.LOW: 3}
+
+
+def _count_violations(
+    violations: list[Violation],
+) -> tuple[tuple[int, int, int, int, int], dict[str, list[int]]]:
+    """Single pass over violations returning (totals, pillar_counts).
+
+    totals = (total, critical, high, medium, low)
+    pillar_counts = {pillar: [critical, high, medium, low]}
+    """
+    total = critical = high = medium = low = 0
+    pillar_counts: dict[str, list[int]] = {}
+    for v in violations:
+        total += 1
+        idx = _SEV_INDEX.get(v.severity, 3)
+        if idx == 0:
+            critical += 1
+        elif idx == 1:
+            high += 1
+        elif idx == 2:
+            medium += 1
+        else:
+            low += 1
+        p = v.pillar or pillar_from_rule_id(v.rule_id)
+        counts = pillar_counts.get(p)
+        if counts is None:
+            counts = [0, 0, 0, 0]
+            pillar_counts[p] = counts
+        counts[idx] += 1
+    return (total, critical, high, medium, low), pillar_counts
+
+
+def _compute_pillar_scores(
+    pillar_counts: dict[str, list[int]],
+) -> tuple[dict[str, float], dict[str, str]]:
+    """Compute per-pillar scores and grades from severity counts."""
+    pillar_scores: dict[str, float] = {}
+    pillar_grades: dict[str, str] = {}
+    for p, counts in pillar_counts.items():
+        s = _pillar_score(counts[0], counts[1], counts[2], counts[3])
+        pillar_scores[p] = s
+        pillar_grades[p] = _score_to_grade(s)
+    for p in PILLAR_DISPLAY_ORDER:
+        if p not in pillar_scores:
+            pillar_scores[p] = 100.0
+            pillar_grades[p] = "A"
+    return pillar_scores, pillar_grades
 
 
 @dataclass(frozen=True)
@@ -45,45 +117,16 @@ class AuditScorecard:
 
     @classmethod
     def from_violations(cls, violations: list[Violation]) -> "AuditScorecard":
-        total = len(violations)
-        critical = sum(1 for v in violations if v.severity == Severity.CRITICAL)
-        high = sum(1 for v in violations if v.severity == Severity.HIGH)
-        medium = sum(1 for v in violations if v.severity == Severity.MEDIUM)
-        low = sum(1 for v in violations if v.severity == Severity.LOW)
-
-        deduction = _pillar_deduction(critical, high, medium, low)
-        score = max(0, 100 - deduction)
-
-        # Per-pillar scores: group violations by pillar (derive from rule_id when pillar empty)
-        pillar_violations: dict[str, list[Violation]] = {}
-        for v in violations:
-            p = v.pillar or pillar_from_rule_id(v.rule_id)
-            pillar_violations.setdefault(p, []).append(v)
-        pillar_scores: dict[str, float] = {}
-        pillar_grades_dict: dict[str, str] = {}
-        for p, pv in pillar_violations.items():
-            c = sum(1 for v in pv if v.severity == Severity.CRITICAL)
-            h = sum(1 for v in pv if v.severity == Severity.HIGH)
-            m = sum(1 for v in pv if v.severity == Severity.MEDIUM)
-            lo = sum(1 for v in pv if v.severity == Severity.LOW)
-            ded = _pillar_deduction(c, h, m, lo)
-            s = max(0, 100 - ded)
-            pillar_scores[p] = float(s)
-            pillar_grades_dict[p] = _score_to_grade(s)
-        # Ensure all canonical pillars appear (score 100 / A when no violations)
-        for p in PILLAR_DISPLAY_ORDER:
-            if p not in pillar_scores:
-                pillar_scores[p] = 100.0
-                pillar_grades_dict[p] = "A"
-
-        overall = round(statistics.mean(pillar_scores.values())) if pillar_scores else score
+        totals, pillar_counts = _count_violations(violations)
+        pillar_scores, pillar_grades_dict = _compute_pillar_scores(pillar_counts)
+        overall = round(statistics.mean(pillar_scores.values())) if pillar_scores else 100
         return cls(
             compliance_score=overall,
-            total_violations=total,
-            critical_count=critical,
-            high_count=high,
-            medium_count=medium,
-            low_count=low,
+            total_violations=totals[0],
+            critical_count=totals[1],
+            high_count=totals[2],
+            medium_count=totals[3],
+            low_count=totals[4],
             pillar_scores=pillar_scores,
             pillar_grades=pillar_grades_dict,
         )

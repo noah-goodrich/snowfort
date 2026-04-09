@@ -103,3 +103,38 @@ def demo_setup(ctx):
         if hint:
             telemetry.error(f"Hint: {hint}")
         raise click.Abort() from e
+
+
+@audit.command(name="demo-teardown")
+@click.pass_context
+def demo_teardown(ctx):
+    """Remove demo WAF violation objects created by demo-setup."""
+    container = ctx.obj
+    telemetry = container.get("TelemetryPort")
+    telemetry.step("Demo teardown: removing WAF test objects...")
+    connection_error_type = container.get("ConnectionErrorType")
+    try:
+        options = get_connection_options(container, interactive=True, role_override="ACCOUNTADMIN")
+        _warn_externalbrowser_headless(options, telemetry)
+        gateway_factory = container.get("SnowflakeGatewayFactory")
+        gateway = gateway_factory(options)
+        gateway.connect()
+        try:
+            from importlib import resources as _res
+
+            sql_content = (
+                _res.files("snowfort_audit").joinpath("resources", "demo_teardown.sql").read_text(encoding="utf-8")
+            )
+        except (FileNotFoundError, TypeError):
+            sql_content = ""
+        if not sql_content:
+            telemetry.error("Teardown SQL not found.")
+            raise click.Abort()
+        for s in (x.strip() for x in sql_content.split(";") if x.strip() and not x.strip().startswith("!")):
+            if s:
+                gateway.execute(s)
+                telemetry.step(f"Executed: {s[:45]}...")
+        telemetry.step("Done. Test objects removed.")
+    except (connection_error_type, RuntimeError) as e:
+        telemetry.error(f"Demo teardown failed: {e}")
+        raise click.Abort() from e

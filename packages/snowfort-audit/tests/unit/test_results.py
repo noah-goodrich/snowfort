@@ -1,8 +1,10 @@
-"""Tests for domain/results: AuditResult, AuditScorecard, _score_to_grade."""
+"""Tests for domain/results: AuditResult, AuditScorecard, scoring model."""
 
 from snowfort_audit.domain.results import (
     AuditResult,
     AuditScorecard,
+    _pillar_deduction,
+    _pillar_score,
     _score_to_grade,
 )
 from snowfort_audit.domain.rule_definitions import (
@@ -11,6 +13,88 @@ from snowfort_audit.domain.rule_definitions import (
     Violation,
     pillar_from_rule_id,
 )
+
+# ---------------------------------------------------------------------------
+# _score_to_grade
+# ---------------------------------------------------------------------------
+
+
+def test_score_to_grade_f():
+    assert _score_to_grade(0) == "F"
+    assert _score_to_grade(59) == "F"
+    assert _score_to_grade(60) == "D"
+    assert _score_to_grade(90) == "A"
+
+
+def test_score_to_grade_b_and_c():
+    assert _score_to_grade(80) == "B"
+    assert _score_to_grade(89) == "B"
+    assert _score_to_grade(70) == "C"
+    assert _score_to_grade(79) == "C"
+
+
+# ---------------------------------------------------------------------------
+# _pillar_deduction (raw, unbounded — still used as input to log dampening)
+# ---------------------------------------------------------------------------
+
+
+def test_pillar_deduction_weights():
+    """Raw deduction weights: CRITICAL=10, HIGH=5, MEDIUM=2, LOW=1."""
+    assert _pillar_deduction(1, 0, 0, 0) == 10
+    assert _pillar_deduction(0, 1, 0, 0) == 5
+    assert _pillar_deduction(0, 0, 1, 0) == 2
+    assert _pillar_deduction(0, 0, 0, 1) == 1
+    assert _pillar_deduction(1, 1, 1, 1) == 18
+
+
+# ---------------------------------------------------------------------------
+# _pillar_score (log-dampened)
+# ---------------------------------------------------------------------------
+
+
+def test_pillar_score_zero_violations():
+    """No violations -> perfect score."""
+    assert _pillar_score(0, 0, 0, 0) == 100.0
+
+
+def test_pillar_score_single_low():
+    """1 LOW violation -> high score (A range)."""
+    s = _pillar_score(0, 0, 0, 1)
+    assert 85 <= s <= 100, f"1 LOW should be A/B range, got {s}"
+
+
+def test_pillar_score_single_critical():
+    """1 CRITICAL -> significant drop but not floor."""
+    s = _pillar_score(1, 0, 0, 0)
+    assert 50 <= s <= 85, f"1 CRITICAL should drop substantially, got {s}"
+
+
+def test_pillar_score_volume_dampening():
+    """2602 MEDIUM violations floor the pillar (but log prevents instant zeroing
+    of small counts)."""
+    s_small = _pillar_score(0, 0, 3, 0)
+    s_large = _pillar_score(0, 0, 2602, 0)
+    assert s_small > s_large, "More violations should produce lower score"
+    assert s_large < 20, f"2602 MEDIUM should floor near 0, got {s_large}"
+    assert s_small > 30, f"3 MEDIUM should still be reasonable, got {s_small}"
+
+
+def test_pillar_score_monotonic():
+    """Score decreases monotonically with increasing violations."""
+    scores = [_pillar_score(0, 0, n, 0) for n in range(0, 50)]
+    for i in range(1, len(scores)):
+        assert scores[i] <= scores[i - 1], f"Score should decrease: {scores[i-1]} -> {scores[i]}"
+
+
+def test_pillar_score_never_negative():
+    """Score is always in [0, 100]."""
+    s = _pillar_score(100, 100, 10000, 10000)
+    assert 0.0 <= s <= 100.0
+
+
+# ---------------------------------------------------------------------------
+# AuditScorecard.from_violations — single-pass + log-dampened
+# ---------------------------------------------------------------------------
 
 
 def test_audit_result_from_violations_empty():
@@ -22,7 +106,7 @@ def test_audit_result_from_violations_empty():
 
 
 def test_audit_result_from_violations_with_deductions():
-    """Violations reduce score; many critical/high can yield grade D or F."""
+    """Violations reduce score; counts are correct."""
     violations = [
         Violation("C1", "R1", "msg", Severity.CRITICAL, pillar="Cost"),
         Violation("C2", "R2", "msg", Severity.CRITICAL, pillar="Cost"),
@@ -32,30 +116,52 @@ def test_audit_result_from_violations_with_deductions():
     assert result.scorecard.total_violations == 3
     assert result.scorecard.critical_count == 2
     assert result.scorecard.high_count == 1
-    # Deduction >= 25 can push score to 75 (C) or lower; enough can hit D (60-69) or F (<60)
-    assert result.scorecard.compliance_score <= 100
+    assert result.scorecard.compliance_score < 100
 
 
-def test_audit_scorecard_grade_d_and_f():
-    """Scorecard grade is D for 60-69 and F for <60. Overall score = mean of pillar scores."""
-    # One pillar P with 6 CRITICAL -> pillar P score 40 (F); other pillars 100 -> overall mean ~91 (A)
+def test_audit_scorecard_single_bad_pillar():
+    """One pillar with many CRITICAL -> that pillar scores F, but overall stays
+    high because other 5 canonical pillars score 100."""
     many_critical = [Violation("X", "R", "m", Severity.CRITICAL, pillar="P")] * 6
-    sc_low = AuditScorecard.from_violations(many_critical)
-    assert sc_low.pillar_scores.get("P", 100) <= 50
-    assert sc_low.pillar_grades.get("P") == "F"
-    # Overall grade is mean of pillar scores, so one bad pillar leaves overall high
-    assert sc_low.compliance_score >= 80
-    assert sc_low.grade == "A"
+    sc = AuditScorecard.from_violations(many_critical)
+    assert sc.pillar_scores.get("P", 100) < 70
+    # Overall is mean of P + 6 canonical pillars (all 100) — stays high
+    assert sc.compliance_score >= 75
+    assert sc.grade in ("A", "B", "C")
 
-    # Score in 60-69 range for D (need multiple pillars with violations to pull mean into 60-69)
-    violations_d = [
-        Violation("C", "R", "m", Severity.CRITICAL, pillar="P"),
-        Violation("H", "R", "m", Severity.HIGH, pillar="P"),
-        Violation("H", "R", "m", Severity.HIGH, pillar="P"),
-    ]
-    sc_d = AuditScorecard.from_violations(violations_d)
-    if 60 <= sc_d.compliance_score < 70:
-        assert sc_d.grade == "D"
+
+def test_audit_scorecard_incloudcounsel_distribution():
+    """INCLOUDCOUNSEL-like distribution: ~454 real violations across multiple
+    pillars should produce an overall score in the 55-70 range (D/C boundary).
+    This is the primary calibration test for the scoring model.
+    """
+    violations = (
+        # Security: 5 CRITICAL, 15 HIGH, 20 MEDIUM
+        [Violation("SEC_001", "R", "m", Severity.CRITICAL, pillar="Security")] * 5
+        + [Violation("SEC_002", "R", "m", Severity.HIGH, pillar="Security")] * 15
+        + [Violation("SEC_003", "R", "m", Severity.MEDIUM, pillar="Security")] * 20
+        # Cost: 3 CRITICAL, 10 HIGH, 200 MEDIUM, 50 LOW
+        + [Violation("COST_001", "R", "m", Severity.CRITICAL, pillar="Cost")] * 3
+        + [Violation("COST_002", "R", "m", Severity.HIGH, pillar="Cost")] * 10
+        + [Violation("COST_003", "R", "m", Severity.MEDIUM, pillar="Cost")] * 200
+        + [Violation("COST_004", "R", "m", Severity.LOW, pillar="Cost")] * 50
+        # Reliability: 2 CRITICAL, 5 HIGH
+        + [Violation("REL_001", "R", "m", Severity.CRITICAL, pillar="Reliability")] * 2
+        + [Violation("REL_002", "R", "m", Severity.HIGH, pillar="Reliability")] * 5
+        # Performance: 8 HIGH, 30 MEDIUM
+        + [Violation("PERF_001", "R", "m", Severity.HIGH, pillar="Performance")] * 8
+        + [Violation("PERF_002", "R", "m", Severity.MEDIUM, pillar="Performance")] * 30
+        # Operations: 53 MEDIUM (tagging)
+        + [Violation("OPS_001", "R", "m", Severity.MEDIUM, pillar="Operations")] * 53
+        # Governance: 1 CRITICAL, 4 LOW
+        + [Violation("GOV_001", "R", "m", Severity.CRITICAL, pillar="Governance")] * 1
+        + [Violation("GOV_002", "R", "m", Severity.LOW, pillar="Governance")] * 4
+    )
+    sc = AuditScorecard.from_violations(violations)
+    assert 50 <= sc.compliance_score <= 70, (
+        f"INCLOUDCOUNSEL-like distribution should score 50-70, got {sc.compliance_score}"
+    )
+    assert sc.grade in ("F", "D", "C")
 
 
 def test_audit_result_from_violations_with_metadata():
@@ -84,22 +190,6 @@ def test_audit_result_to_summary_dict_with_violations():
     assert d["CRITICAL_COUNT"] == 1
     assert d["HIGH_COUNT"] == 1
     assert d["TOTAL_VIOLATIONS"] == 2
-
-
-def test_score_to_grade_f():
-    """_score_to_grade returns F for score < 60."""
-    assert _score_to_grade(0) == "F"
-    assert _score_to_grade(59) == "F"
-    assert _score_to_grade(60) == "D"
-    assert _score_to_grade(90) == "A"
-
-
-def test_score_to_grade_b_and_c():
-    """_score_to_grade returns B for 80-89, C for 70-79."""
-    assert _score_to_grade(80) == "B"
-    assert _score_to_grade(89) == "B"
-    assert _score_to_grade(70) == "C"
-    assert _score_to_grade(79) == "C"
 
 
 def test_pillar_derived_from_rule_id_when_empty():

@@ -31,12 +31,22 @@ def _is_system_or_tool_violation(v: Violation, include_snowfort_db: bool) -> boo
     return False
 
 
-def _check_online_uses_resource_name(rule: Rule) -> bool:
-    """True if rule.check_online uses its third parameter (view/resource name) in the method body.
-    Signature is (self, cursor, _resource_name). Used to decide which rules to run per-view vs once at account level.
-    Inspects the class method so it still works when the instance method is replaced (e.g. by a test mock).
-    """
-    method = getattr(type(rule), "check_online", None)
+_resource_name_cache: dict[type, bool] = {}
+
+
+def _class_uses_resource_name(cls: type) -> bool:
+    """Cached per-class: True if cls.check_online uses its third parameter."""
+    cached = _resource_name_cache.get(cls)
+    if cached is not None:
+        return cached
+    result = _inspect_uses_resource_name(cls)
+    _resource_name_cache[cls] = result
+    return result
+
+
+def _inspect_uses_resource_name(cls: type) -> bool:
+    """AST inspection: does cls.check_online reference its third positional parameter?"""
+    method = getattr(cls, "check_online", None)
     if method is None:
         return False
     try:
@@ -44,9 +54,6 @@ def _check_online_uses_resource_name(rule: Rule) -> bool:
         source = textwrap.dedent(source)
         tree = ast.parse(source)
     except (OSError, TypeError, SyntaxError):
-        # Source unavailable (e.g. dynamically defined class). Fall back to
-        # signature check: if method is overridden and has 3+ params, assume
-        # it uses the resource name.
         base_method = getattr(Rule, "check_online", None)
         if method is not base_method:
             sig = inspect.signature(method)
@@ -57,12 +64,38 @@ def _check_online_uses_resource_name(rule: Rule) -> bool:
             args = node.args.args
             if len(args) < 3:
                 return False
-            param_name = args[2].arg  # (self, cursor, _resource_name)
+            param_name = args[2].arg
             for child in ast.walk(node):
                 if isinstance(child, ast.Name) and child.id == param_name:
                     return True
             return False
     return False
+
+
+def _check_online_uses_resource_name(rule: Rule) -> bool:
+    """Thin wrapper: delegates to the lru_cache'd _class_uses_resource_name."""
+    return _class_uses_resource_name(type(rule))
+
+
+def _check_views_chunk(
+    views_chunk: list[tuple[str, str]],
+    rules_for_view: list[Rule],
+) -> list[Violation]:
+    """Run view-scoped rules against a chunk of (view_name, ddl) pairs. Pure Python, no cursor."""
+    out: list[Violation] = []
+    for view_name, ddl in views_chunk:
+        for rule in rules_for_view:
+            try:
+                found = rule.check_static(ddl, view_name)
+                if found:
+                    out.extend(found)
+            except Exception:
+                pass
+    return out
+
+
+# (rule_id, error_message)
+RuleError = tuple[str, str]
 
 
 def _run_rules_chunk(
@@ -71,10 +104,11 @@ def _run_rules_chunk(
     worker_id: int,
     profile: bool = False,
     scan_context: ScanContext | None = None,
-) -> tuple[list[Violation], list[RuleTiming]]:
+) -> tuple[list[Violation], list[RuleTiming], list[RuleError]]:
     """Run a subset of rules on a dedicated connection. Used by parallel scan."""
     out: list[Violation] = []
     timings: list[RuleTiming] = []
+    errors: list[RuleError] = []
     cursor = gateway.get_cursor_for_worker(worker_id)
     for _idx, rule in rules_chunk:
         t0 = time.perf_counter()
@@ -82,12 +116,11 @@ def _run_rules_chunk(
             found = rule.check_online(cursor, scan_context=scan_context)
             if found:
                 out.extend(found)
-        except Exception:
-            # Rule normally catches and logs; if it raised, we continue (no telemetry in worker thread)
-            pass
+        except Exception as e:
+            errors.append((rule.id, str(e)))
         if profile:
             timings.append((rule.id, rule.name, time.perf_counter() - t0))
-    return out, timings
+    return out, timings, errors
 
 
 class OnlineScanUseCase:
@@ -146,7 +179,7 @@ class OnlineScanUseCase:
             self.telemetry.info(f"  Running {total} rules (--workers N for parallel, --log-level DEBUG for detail).")
             violations, timings = self._execute_sequential(profile, scan_context)
 
-        violations, view_timings = self._execute_view_phase(violations, include_snowfort_db, profile)
+        violations, view_timings = self._execute_view_phase(violations, include_snowfort_db, profile, workers)
         self.profile_timings = timings + view_timings
 
         before = len(violations)
@@ -162,6 +195,7 @@ class OnlineScanUseCase:
         violations: list[Violation],
         include_snowfort_db: bool,
         profile: bool = False,
+        workers: int = 1,
     ) -> tuple[list[Violation], list[RuleTiming]]:
         """Run per-view rules using batch DDL from ACCOUNT_USAGE.VIEWS.
         Falls back to per-view GET_DDL if ACCOUNT_USAGE.VIEWS is unavailable.
@@ -195,7 +229,9 @@ class OnlineScanUseCase:
             ddl_map: dict[str, str] | None = self._fetch_batch_ddl(cur, excluded_dbs, excluded_db_like)
 
             if ddl_map is not None:
-                violations, timings = self._run_view_phase_batch(cur, violations, rules_for_view, ddl_map, profile)
+                violations, timings = self._run_view_phase_batch(
+                    cur, violations, rules_for_view, ddl_map, profile, workers
+                )
             else:
                 violations, timings = self._run_view_phase_fallback(
                     cur, violations, rules_for_view, excluded_dbs, excluded_db_like, profile
@@ -243,31 +279,52 @@ class OnlineScanUseCase:
         rules_for_view: list[Rule],
         ddl_map: dict[str, str],
         profile: bool,
+        workers: int = 1,
     ) -> tuple[list[Violation], list[RuleTiming]]:
-        """Run view-scoped rules against pre-fetched DDLs (batch path)."""
+        """Run view-scoped rules against pre-fetched DDLs (batch path).
+        When workers > 1, partitions views across threads (check_static is pure Python, no cursor).
+        """
         timings: list[RuleTiming] = []
         n_views = len(ddl_map)
         n_per_view = len(rules_for_view)
         if n_views == 0:
             self.telemetry.info("  No user views to check (system DBs excluded).")
             return violations, timings
-        self.telemetry.info(f"  Checking {n_views} views with {n_per_view} view-scoped rule(s) (batch DDL)...")
-        rule_elapsed: dict[str, float] = {}
-        for view_name, ddl in ddl_map.items():
-            for rule in rules_for_view:
-                t0 = time.perf_counter()
-                try:
-                    found = rule.check_static(ddl, view_name)
-                    if found:
-                        violations.extend(found)
-                except Exception as e:
-                    self.telemetry.error(f"Rule execution failed: {e}")
-                    self.telemetry.debug(f"      -> {rule.id} on {view_name}")
-                if profile:
-                    rule_elapsed[rule.id] = rule_elapsed.get(rule.id, 0.0) + (time.perf_counter() - t0)
-        if profile:
-            rule_name_map = {r.id: r.name for r in rules_for_view}
-            timings = [(rid, rule_name_map[rid], elapsed) for rid, elapsed in rule_elapsed.items()]
+
+        views_list = list(ddl_map.items())
+
+        if workers > 1 and n_views > 1:
+            self.telemetry.info(
+                f"  Checking {n_views} views with {n_per_view} view-scoped rule(s) "
+                f"(batch DDL, {workers} workers)..."
+            )
+            t0_all = time.perf_counter()
+            chunk_size = max(1, n_views // workers)
+            chunks = [views_list[i : i + chunk_size] for i in range(0, n_views, chunk_size)]
+            with ThreadPoolExecutor(max_workers=min(workers, len(chunks))) as pool:
+                futures = [pool.submit(_check_views_chunk, chunk, rules_for_view) for chunk in chunks]
+                for fut in as_completed(futures):
+                    violations.extend(fut.result())
+            if profile:
+                timings.append(("VIEW_PHASE", "Batch DDL (parallel)", time.perf_counter() - t0_all))
+        else:
+            self.telemetry.info(f"  Checking {n_views} views with {n_per_view} view-scoped rule(s) (batch DDL)...")
+            rule_elapsed: dict[str, float] = {}
+            for view_name, ddl in views_list:
+                for rule in rules_for_view:
+                    t0 = time.perf_counter()
+                    try:
+                        found = rule.check_static(ddl, view_name)
+                        if found:
+                            violations.extend(found)
+                    except Exception as e:
+                        self.telemetry.error(f"Rule execution failed: {e}")
+                        self.telemetry.debug(f"      -> {rule.id} on {view_name}")
+                    if profile:
+                        rule_elapsed[rule.id] = rule_elapsed.get(rule.id, 0.0) + (time.perf_counter() - t0)
+            if profile:
+                rule_name_map = {r.id: r.name for r in rules_for_view}
+                timings = [(rid, rule_name_map[rid], elapsed) for rid, elapsed in rule_elapsed.items()]
         return violations, timings
 
     def _run_view_phase_fallback(
@@ -364,6 +421,24 @@ class OnlineScanUseCase:
             " WHERE DELETED IS NULL",
             "tables",
         )
+
+        # Build tag_refs_index for O(1) lookup by (DOMAIN, OBJECT_NAME).
+        if ctx.tag_refs is not None:
+            idx: dict[tuple[str, str], dict[str, str]] = {}
+            for row in ctx.tag_refs:
+                domain = str(row[0]).upper()
+                obj = str(row[1]).upper()
+                tag = str(row[2]).upper()
+                val = str(row[3]) if row[3] is not None else ""
+                key = (domain, obj)
+                tags = idx.get(key)
+                if tags is None:
+                    tags = {}
+                    idx[key] = tags
+                tags[tag] = val
+            object.__setattr__(ctx, "tag_refs_index", idx)
+            self.telemetry.debug(f"  [ScanContext] Built tag_refs_index with {len(idx)} entries.")
+
         return ctx
 
     def _execute_sequential(
@@ -409,9 +484,11 @@ class OnlineScanUseCase:
             for fut in as_completed(futures):
                 worker_id = futures[fut]
                 try:
-                    out, chunk_timings = fut.result()
+                    out, chunk_timings, chunk_errors = fut.result()
                     violations.extend(out)
                     timings.extend(chunk_timings)
+                    for rule_id, err_msg in chunk_errors:
+                        self.telemetry.error(f"  Worker {worker_id}: {rule_id} failed: {err_msg}")
                 except Exception as e:
                     self.telemetry.error(f"Rule execution failed: {e}")
                 n_done += len(chunks[worker_id])

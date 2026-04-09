@@ -1,68 +1,123 @@
 !set variable_substitution=true;
 
--- Setup Script: The "Bad Architect" Environment
--- This script intentionally creates resources that violate Snowarch WAF rules.
--- Run this in a SANDBOX account to test the snow-architect-audit online scanner.
+-- Setup Script: The "Bad Architect" Environment (v0.3.0)
+-- This script intentionally creates resources that violate Snowfort WAF rules.
+-- Run this in a SANDBOX account to test the snowfort-audit online scanner.
 --
--- Triggers (among others): SEC_002, SEC_003, SEC_004, SEC_006, SEC_008, SEC_011 (password-only users),
--- SEC_012 (no password policy if account has none), COST_001, COST_005, REL_002, REL_003, OPS_001.
+-- All objects are prefixed SNOWFORT_TEST_ for easy identification/cleanup.
+-- All warehouses are X-SMALL (minimal credit cost).
+--
+-- Triggers: SEC_002, SEC_003, SEC_004, SEC_006, SEC_008, SEC_011,
+--   COST_001, COST_005, COST_008, COST_009, REL_002, REL_003, REL_006,
+--   GOV_004, OPS_001, OPS_009, PERF_011.
 
 USE ROLE ACCOUNTADMIN;
 
--- 1. [SEC_003] Network Policy: The Open Door
+-- ============================================================
+-- SECURITY pillar
+-- ============================================================
+
+-- [SEC_003] Network Policy: The Open Door
 CREATE NETWORK POLICY IF NOT EXISTS BAD_OPEN_POLICY
     ALLOWED_IP_LIST = ('0.0.0.0/0')
-    COMMENTS = 'Violates SEC_003 (Allow All)';
+    COMMENT = 'Violates SEC_003 (Allow All)';
 
--- 2. [COST_001] Warehouse: The Cash Furnace
-CREATE WAREHOUSE IF NOT EXISTS BAD_COST_WH
-    WITH WAREHOUSE_SIZE = 'X-SMALL'
-    AUTO_SUSPEND = 3600 -- 1 Hour (Violates COST_001)
-    AUTO_RESUME = TRUE
-    COMMENT = 'Violates COST_001 (High Auto Suspend)';
+-- [SEC_008] Zombie Role: No grants (Orphan + Empty)
+CREATE ROLE IF NOT EXISTS ORPHAN_ROLE;
 
--- 3. [COST_005] Warehouse: Multi-Cluster standard scaling
-CREATE WAREHOUSE IF NOT EXISTS BAD_MC_WH
-    WITH WAREHOUSE_SIZE = 'SMALL'
-    MAX_CLUSTER_COUNT = 2
-    SCALING_POLICY = 'STANDARD' -- Should be ECONOMY (Violates COST_005)
-    COMMENT = 'Violates COST_005 (Standard Scaling check)';
-
--- 4. [SEC_004] Public Grants: The Commons
-GRANT USAGE ON WAREHOUSE BAD_COST_WH TO ROLE PUBLIC; -- Violates SEC_004
-
--- 5. [SEC_008] Zombie Roles: The Orphan
-CREATE ROLE IF NOT EXISTS ORPHAN_ROLE; -- Violates SEC_008 (No grants)
-
--- 6. [REL_002/REL_003] Reliability: Dangerous Tables
-CREATE DATABASE IF NOT EXISTS BAD_PRACTICE_DB;
-CREATE SCHEMA IF NOT EXISTS BAD_PRACTICE_DB.PUBLIC;
-
-CREATE TABLE IF NOT EXISTS BAD_PRACTICE_DB.PUBLIC.FRAGILE_TABLE (id int)
-    DATA_RETENTION_TIME_IN_DAYS = 0 -- Violates REL_002
-    ENABLE_SCHEMA_EVOLUTION = TRUE; -- Violates REL_003
-
--- 6b. [REL_006] Production-like table with minimal retention (1 day)
-CREATE DATABASE IF NOT EXISTS PRD_BAD_DB;
-CREATE SCHEMA IF NOT EXISTS PRD_BAD_DB.PUBLIC;
-CREATE TABLE IF NOT EXISTS PRD_BAD_DB.PUBLIC.CRITICAL_TABLE (id int, data variant)
-    DATA_RETENTION_TIME_IN_DAYS = 1
-    COMMENT = 'Violates REL_006 (1-day retention on critical table; suggest 7+)';
-
--- 7. [OPS_001] Tags: The Mystery Box
--- Resources above (Warehouses, DB) created without Tags violate OPS_001.
-
--- 8. [SEC_002] Identity: The Unprotected Admin
+-- [SEC_002] Admin user without MFA
 CREATE USER IF NOT EXISTS BAD_ADMIN_USER
     PASSWORD = 'Password123!'
     MUST_CHANGE_PASSWORD = FALSE;
-GRANT ROLE SYSADMIN TO USER BAD_ADMIN_USER; -- Violates SEC_002 (Admin w/o MFA)
+GRANT ROLE SYSADMIN TO USER BAD_ADMIN_USER;
 
--- 9. [SEC_006] Service User: Password Auth
+-- [SEC_006] Service user with password auth
 CREATE USER IF NOT EXISTS BAD_SVC_USER
     PASSWORD = 'Password123!'
     DEFAULT_ROLE = PUBLIC
-    COMMENT = 'Service User'; -- Heuristic for Service User checks
--- Violates SEC_006 (Should use Key Pair)
+    COMMENT = 'Service User';
 
-SELECT 'Environment configured with multiple WAF violations.' as status;
+-- [SEC_011] Password-only user (no MFA, no SSO, no key-pair)
+CREATE USER IF NOT EXISTS SNOWFORT_TEST_PWD_USER
+    PASSWORD = 'TestPassword456!'
+    MUST_CHANGE_PASSWORD = FALSE
+    COMMENT = 'Violates SEC_011 (password-only auth)';
+
+-- [SEC_004] Public grants
+CREATE WAREHOUSE IF NOT EXISTS SNOWFORT_TEST_PUBLIC_WH
+    WITH WAREHOUSE_SIZE = 'X-SMALL'
+    AUTO_SUSPEND = 60
+    AUTO_RESUME = TRUE;
+GRANT USAGE ON WAREHOUSE SNOWFORT_TEST_PUBLIC_WH TO ROLE PUBLIC;
+
+-- ============================================================
+-- COST pillar
+-- ============================================================
+
+-- [COST_001] Warehouse with very high auto-suspend
+CREATE WAREHOUSE IF NOT EXISTS BAD_COST_WH
+    WITH WAREHOUSE_SIZE = 'X-SMALL'
+    AUTO_SUSPEND = 3600
+    AUTO_RESUME = TRUE
+    COMMENT = 'Violates COST_001 (1hr auto-suspend)';
+
+-- [COST_005] Multi-cluster standard scaling
+CREATE WAREHOUSE IF NOT EXISTS BAD_MC_WH
+    WITH WAREHOUSE_SIZE = 'X-SMALL'
+    MAX_CLUSTER_COUNT = 2
+    SCALING_POLICY = 'STANDARD'
+    COMMENT = 'Violates COST_005 (Standard scaling)';
+
+-- [COST_008] Staging-named permanent table (should be transient)
+CREATE DATABASE IF NOT EXISTS BAD_PRACTICE_DB;
+CREATE SCHEMA IF NOT EXISTS BAD_PRACTICE_DB.PUBLIC;
+CREATE TABLE IF NOT EXISTS BAD_PRACTICE_DB.PUBLIC.STG_ORDERS (
+    id INT, data VARIANT
+) COMMENT = 'Violates COST_008 (staging-named permanent table)';
+
+-- ============================================================
+-- RELIABILITY pillar
+-- ============================================================
+
+-- [REL_002] Table with zero retention + [REL_003] schema evolution
+CREATE TABLE IF NOT EXISTS BAD_PRACTICE_DB.PUBLIC.FRAGILE_TABLE (id INT)
+    DATA_RETENTION_TIME_IN_DAYS = 0
+    ENABLE_SCHEMA_EVOLUTION = TRUE;
+
+-- [REL_006] Production-like table with 1-day retention
+CREATE DATABASE IF NOT EXISTS PRD_BAD_DB;
+CREATE SCHEMA IF NOT EXISTS PRD_BAD_DB.PUBLIC;
+CREATE TABLE IF NOT EXISTS PRD_BAD_DB.PUBLIC.CRITICAL_TABLE (
+    id INT, data VARIANT
+) DATA_RETENTION_TIME_IN_DAYS = 1
+  COMMENT = 'Violates REL_006 (1-day retention on prod table)';
+
+-- ============================================================
+-- PERFORMANCE pillar
+-- ============================================================
+
+-- [PERF_011] Bad clustering key: too many expressions + MOD anti-pattern
+CREATE TABLE IF NOT EXISTS BAD_PRACTICE_DB.PUBLIC.BAD_CLUSTER_TABLE (
+    id INT, region VARCHAR, category VARCHAR,
+    created_date DATE, status INT, priority INT
+) CLUSTER BY (id, region, category, created_date, MOD(status, 10));
+
+-- ============================================================
+-- GOVERNANCE pillar
+-- ============================================================
+
+-- [GOV_004] Database and tables without comments/documentation
+CREATE DATABASE IF NOT EXISTS SNOWFORT_TEST_UNDOCUMENTED_DB;
+CREATE SCHEMA IF NOT EXISTS SNOWFORT_TEST_UNDOCUMENTED_DB.PUBLIC;
+CREATE TABLE IF NOT EXISTS SNOWFORT_TEST_UNDOCUMENTED_DB.PUBLIC.NO_DOCS_TABLE (
+    id INT, mystery_col VARIANT
+);
+
+-- ============================================================
+-- OPERATIONS pillar
+-- ============================================================
+
+-- [OPS_001] All warehouses/databases above are created WITHOUT tags.
+-- [OPS_009] Warehouses above have no resource monitor assigned.
+
+SELECT 'Snowfort WAF test environment configured with violations across all 6 pillars.' AS status;
