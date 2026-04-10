@@ -2,6 +2,9 @@
 
 from unittest.mock import MagicMock
 
+import pytest
+
+from snowfort_audit.domain.rule_definitions import RuleExecutionError
 from snowfort_audit.domain.rules.cost_extensions import WorkloadHeterogeneityCheck
 from snowfort_audit.domain.rules.ops_extensions import ResizeChurnCheck
 from snowfort_audit.domain.rules.perf_extensions import CacheContentionCheck
@@ -26,7 +29,8 @@ def test_workload_heterogeneity_ok():
 def test_workload_heterogeneity_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert WorkloadHeterogeneityCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        WorkloadHeterogeneityCheck().check_online(c)
 
 
 def test_resize_churn():
@@ -65,7 +69,8 @@ def test_cache_contention_none():
 def test_cache_contention_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert CacheContentionCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        CacheContentionCheck().check_online(c)
 
 
 def test_isolation_pivot():
@@ -85,7 +90,8 @@ def test_isolation_pivot_below_threshold():
 def test_isolation_pivot_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert IsolationPivotCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        IsolationPivotCheck().check_online(c)
 
 
 def test_gen2_upgrade():

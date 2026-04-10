@@ -4,6 +4,31 @@ All notable changes to snowfort-audit are documented here.
 
 ---
 
+## [1.0.0] — 2026-04-10
+
+### Summary
+v1.0.0 is the production-stable release. Fixes silent error swallowing across all 116 rules, surfaces errored rule counts in scan output, adds GitHub Actions CI, and publishes to PyPI as `Development Status :: 5 - Production/Stable`.
+
+### AC1 — Structured error handling across all rules
+All 81 `except Exception` blocks in `domain/rules/` (security.py, cost.py, op_excellence.py, reliability.py, governance.py, workload.py, perf.py, cost_extensions.py, perf_extensions.py, strategy.py, ops.py, security_advanced.py) now raise `RuleExecutionError` or call `is_allowlisted_sf_error()` before returning `[]`. Zero bare `except Exception: return []` remaining.
+
+### AC2 — Scan output surfaces errored rules
+- `OnlineScanUseCase.errored_rules: list[str]` attribute populated after `execute()`.
+- Sequential and parallel execution paths both track and log `ERRORED <rule_id>` for each failed rule.
+- `report_findings` and `report_findings_guided` display `Warning: N rule(s) errored — results may be incomplete.` when rules errored.
+- `--quiet` one-liner includes `, N rule(s) errored` suffix when applicable.
+
+### AC3 — GitHub Actions CI workflow
+`.github/workflows/ci.yml` runs `ruff check`, `mypy`, and `pytest --cov --cov-fail-under=80` on push/PR targeting `packages/snowfort-audit/**`.
+
+### AC4 — PyPI publish
+Version bumped to `1.0.0`. Development Status classifier changed to `5 - Production/Stable`.
+
+### AC5 — Tests updated
+76 tests updated: `_not_found_error()` helpers set `errno = 2003` for allowlisted errors; error-path tests assert `pytest.raises(RuleExecutionError)` instead of `== []`.
+
+---
+
 ## [0.4.1] — 2026-04-10
 
 ### Documentation

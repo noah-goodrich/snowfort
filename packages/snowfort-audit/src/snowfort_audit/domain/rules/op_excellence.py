@@ -6,7 +6,14 @@ from typing import TYPE_CHECKING
 
 from snowfort_audit.domain.conventions import SnowfortConventions
 from snowfort_audit.domain.protocols import TelemetryPort
-from snowfort_audit.domain.rule_definitions import Rule, Severity, Violation, is_excluded_db_or_warehouse_name
+from snowfort_audit.domain.rule_definitions import (
+    Rule,
+    RuleExecutionError,
+    Severity,
+    Violation,
+    is_allowlisted_sf_error,
+    is_excluded_db_or_warehouse_name,
+)
 from snowfort_audit.domain.scan_context import TR_DOMAIN, TR_OBJECT_NAME, TR_TAG_NAME
 
 if TYPE_CHECKING:
@@ -95,8 +102,10 @@ class ResourceMonitorCheck(Rule):
                         )
                     )
 
-        except Exception:
-            pass
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
         return violations
 
 
@@ -145,8 +154,10 @@ class ObjectCommentCheck(Rule):
                     violations.append(
                         Violation(self.id, db_name, msg, self.severity, remediation_key=self.remediation_key)
                     )
-        except Exception:
-            pass
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
         return violations
 
 
@@ -195,8 +206,10 @@ class MandatoryTaggingCheck(Rule):
                 violations.extend(self._validate_tags("WAREHOUSE", wh, tagged_objects))
             for db in databases:
                 violations.extend(self._validate_tags("DATABASE", db, tagged_objects))
-        except Exception:
-            pass
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
         return violations
 
     def _resolve_warehouse_names(self, cursor: SnowflakeCursorProtocol, scan_context: ScanContext | None) -> set[str]:
@@ -314,10 +327,10 @@ class AlertConfigurationCheck(Rule):
                         "Account", "Alerts exist but none are RESUMED; resume alerts to enable notifications."
                     )
                 ]
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"AlertConfigurationCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
         return []
 
 
@@ -348,10 +361,10 @@ class NotificationIntegrationCheck(Rule):
                         "No notification integration defined; create one to send alert notifications (email, webhook, etc.).",
                     )
                 ]
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"NotificationIntegrationCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
         return []
 
 
@@ -396,10 +409,10 @@ class ObservabilityInfrastructureCheck(Rule):
                         "No dedicated observability/monitoring database found; consider OBSERVABILITY or MONITORING db with views on ACCOUNT_USAGE.",
                     )
                 ]
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"ObservabilityInfrastructureCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
         return []
 
 
@@ -444,10 +457,10 @@ class IaCDriftReadinessCheck(Rule):
                         "Account", "No databases have MANAGED_BY (or similar) tag; add tag for IaC/drift detection."
                     )
                 ]
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"IaCDriftReadinessCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
         return []
 
     def _fetch_managed_tags(
@@ -525,10 +538,10 @@ class EventTableConfigurationCheck(Rule):
                         "No customer-owned event table configured; event tables enable centralized monitoring for tasks, UDFs, and stored procedures.",
                     )
                 ]
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"EventTableConfigurationCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
         return []
 
 
@@ -572,14 +585,10 @@ class AlertExecutionReliabilityCheck(Rule):
                 )
                 for row in cursor.fetchall()
             ]
-        except Exception as e:
-            if self.telemetry:
-                err_str = str(e).lower()
-                if "does not exist" in err_str or "not authorized" in err_str:
-                    self.telemetry.debug(f"OPS_012 skipped (ALERT_HISTORY not available): {e}")
-                else:
-                    self.telemetry.error(f"AlertExecutionReliabilityCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class DataMetricFunctionsCoverageCheck(Rule):
@@ -617,10 +626,10 @@ class DataMetricFunctionsCoverageCheck(Rule):
                         "No Data Metric Functions (DMF) references found; DMFs help monitor data quality and detect anomalies in tables.",
                     )
                 ]
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"DataMetricFunctionsCoverageCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
         return []
 
 
@@ -678,13 +687,10 @@ class DeveloperSandboxSprawlCheck(Rule):
                     )
                 )
             return violations
-        except Exception as e:
-            err_str = str(e).lower()
-            if "does not exist" in err_str or "not authorized" in err_str or "002003" in err_str:
-                if self.telemetry:
-                    self.telemetry.debug(f"OPS_013 skipped: {e}")
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
                 return []
-            raise
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class PermifrostDriftCheck(Rule):

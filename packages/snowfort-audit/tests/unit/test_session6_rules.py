@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
+
+from snowfort_audit.domain.rule_definitions import RuleExecutionError
 from snowfort_audit.domain.rules.governance import IcebergTableGovernanceCheck
 from snowfort_audit.domain.rules.security_advanced import (
     AIRedactPolicyCoverageCheck,
@@ -64,7 +67,8 @@ class TestProgrammaticAccessTokenCheck:
         assert "90 days" in violations[0].message
 
     def test_error_returns_empty(self):
-        assert self.rule.check_online(_cursor_raising(RuntimeError("boom"))) == []
+        with pytest.raises(RuleExecutionError):
+            self.rule.check_online(_cursor_raising(RuntimeError("boom")))
 
     def test_rule_id(self):
         assert self.rule.id == "SEC_018"
@@ -99,7 +103,8 @@ class TestAIRedactPolicyCoverageCheck:
         assert len(violations) == 2
 
     def test_error_returns_empty(self):
-        assert self.rule.check_online(_cursor_raising(Exception("err"))) == []
+        with pytest.raises(RuleExecutionError):
+            self.rule.check_online(_cursor_raising(Exception("err")))
 
     def test_rule_id(self):
         assert self.rule.id == "SEC_019"
@@ -127,7 +132,8 @@ class TestAuthorizationPolicyCheck:
         assert len(self.rule.check_online(cur)) == 2
 
     def test_error_returns_empty(self):
-        assert self.rule.check_online(_cursor_raising(RuntimeError("boom"))) == []
+        with pytest.raises(RuleExecutionError):
+            self.rule.check_online(_cursor_raising(RuntimeError("boom")))
 
     def test_rule_id(self):
         assert self.rule.id == "SEC_020"
@@ -157,7 +163,8 @@ class TestTrustCenterExtensionsCheck:
         assert len(violations) == 1
 
     def test_error_returns_empty(self):
-        assert self.rule.check_online(_cursor_raising(Exception("no view"))) == []
+        with pytest.raises(RuleExecutionError):
+            self.rule.check_online(_cursor_raising(Exception("no view")))
 
     def test_rule_id(self):
         assert self.rule.id == "SEC_021"
@@ -197,7 +204,8 @@ class TestPrivateLinkOnlyEnforcementCheck:
         assert "ENFORCE_PRIVATE_LINK" in violations[0].message
 
     def test_error_returns_empty(self):
-        assert self.rule.check_online(_cursor_raising(Exception("err"))) == []
+        with pytest.raises(RuleExecutionError):
+            self.rule.check_online(_cursor_raising(Exception("err")))
 
     def test_rule_id(self):
         assert self.rule.id == "SEC_022"
@@ -236,7 +244,8 @@ class TestSnowparkContainerServicesSecurityCheck:
         assert len(violations) == 1
 
     def test_error_returns_empty(self):
-        assert self.rule.check_online(_cursor_raising(RuntimeError("boom"))) == []
+        with pytest.raises(RuleExecutionError):
+            self.rule.check_online(_cursor_raising(RuntimeError("boom")))
 
     def test_rule_id(self):
         assert self.rule.id == "SEC_023"
@@ -277,7 +286,8 @@ class TestIcebergTableGovernanceCheck:
         assert "no catalog integration" in violations[0].message
 
     def test_error_returns_empty(self):
-        assert self.rule.check_online(_cursor_raising(Exception("err"))) == []
+        with pytest.raises(RuleExecutionError):
+            self.rule.check_online(_cursor_raising(Exception("err")))
 
     def test_rule_id(self):
         assert self.rule.id == "GOV_009"

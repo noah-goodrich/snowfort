@@ -1,5 +1,8 @@
 from unittest.mock import MagicMock
 
+import pytest
+
+from snowfort_audit.domain.rule_definitions import RuleExecutionError
 from snowfort_audit.domain.rules.perf import (
     ClusteringKeyQualityCheck,
     ClusterKeyValidationCheck,
@@ -52,16 +55,14 @@ def test_cluster_key_validation_check_good_table():
 
 
 def test_cluster_key_validation_check_error_handling():
-    telemetry = MagicMock()
-    rule = ClusterKeyValidationCheck(telemetry=telemetry)
+    rule = ClusterKeyValidationCheck()
     mock_cursor = MagicMock()
 
     # Query fails
     mock_cursor.execute.side_effect = Exception("Connection lost")
 
-    violations = rule.check_online(mock_cursor)
-    assert violations == []
-    telemetry.error.assert_called_once()
+    with pytest.raises(RuleExecutionError):
+        rule.check_online(mock_cursor)
 
 
 def test_cluster_key_validation_depth_fetch_error():

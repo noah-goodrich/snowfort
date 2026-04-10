@@ -6,7 +6,13 @@ if TYPE_CHECKING:
     from snowfort_audit._vendor.protocols import SnowflakeCursorProtocol
 
 from snowfort_audit.domain.protocols import TelemetryPort
-from snowfort_audit.domain.rule_definitions import Rule, Severity, Violation
+from snowfort_audit.domain.rule_definitions import (
+    Rule,
+    RuleExecutionError,
+    Severity,
+    Violation,
+    is_allowlisted_sf_error,
+)
 
 
 class WorkloadHeterogeneityCheck(Rule):
@@ -66,7 +72,7 @@ class WorkloadHeterogeneityCheck(Rule):
                         )
                     )
             return violations
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"WorkloadHeterogeneityCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc

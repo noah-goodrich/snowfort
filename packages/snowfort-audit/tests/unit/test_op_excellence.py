@@ -2,6 +2,9 @@
 
 from unittest.mock import MagicMock
 
+import pytest
+
+from snowfort_audit.domain.rule_definitions import RuleExecutionError
 from snowfort_audit.domain.rules.op_excellence import (
     AlertConfigurationCheck,
     AlertExecutionReliabilityCheck,
@@ -36,7 +39,8 @@ def test_resource_monitor_wh_no_monitor():
 def test_resource_monitor_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert ResourceMonitorCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        ResourceMonitorCheck().check_online(c)
 
 
 def test_object_comment_missing():
@@ -52,7 +56,8 @@ def test_object_comment_missing():
 def test_object_comment_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert ObjectCommentCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        ObjectCommentCheck().check_online(c)
 
 
 def test_mandatory_tagging_no_tags():
@@ -69,7 +74,8 @@ def test_mandatory_tagging_no_tags():
 def test_mandatory_tagging_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert MandatoryTaggingCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        MandatoryTaggingCheck().check_online(c)
 
 
 def test_mandatory_tagging_severity_and_exclusion():
@@ -119,7 +125,8 @@ def test_alert_config_not_resumed():
 def test_alert_config_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert AlertConfigurationCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        AlertConfigurationCheck().check_online(c)
 
 
 def test_notification_none():
@@ -138,7 +145,8 @@ def test_notification_exists():
 def test_notification_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert NotificationIntegrationCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        NotificationIntegrationCheck().check_online(c)
 
 
 def test_observability_none():
@@ -157,7 +165,8 @@ def test_observability_exists():
 def test_observability_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert ObservabilityInfrastructureCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        ObservabilityInfrastructureCheck().check_online(c)
 
 
 def test_iac_drift_no_tags():
@@ -174,7 +183,8 @@ def test_iac_drift_no_tags():
 def test_iac_drift_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert IaCDriftReadinessCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        IaCDriftReadinessCheck().check_online(c)
 
 
 def test_event_table_none():
@@ -195,7 +205,8 @@ def test_event_table_exists():
 def test_event_table_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert EventTableConfigurationCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        EventTableConfigurationCheck().check_online(c)
 
 
 def test_alert_execution_failures():
@@ -208,7 +219,8 @@ def test_alert_execution_failures():
 def test_alert_execution_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert AlertExecutionReliabilityCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        AlertExecutionReliabilityCheck().check_online(c)
 
 
 def test_dmf_none():
@@ -227,4 +239,5 @@ def test_dmf_exists():
 def test_dmf_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert DataMetricFunctionsCoverageCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        DataMetricFunctionsCoverageCheck().check_online(c)

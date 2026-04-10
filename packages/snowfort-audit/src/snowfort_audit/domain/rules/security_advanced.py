@@ -9,7 +9,13 @@ if TYPE_CHECKING:
 
 
 from snowfort_audit.domain.protocols import TelemetryPort
-from snowfort_audit.domain.rule_definitions import Rule, Severity, Violation
+from snowfort_audit.domain.rule_definitions import (
+    Rule,
+    RuleExecutionError,
+    Severity,
+    Violation,
+    is_allowlisted_sf_error,
+)
 from snowfort_audit.domain.rules._grants import (
     GRANTS_CACHE_WINDOW,
     GTR_GRANTED_ON,
@@ -78,10 +84,10 @@ class ServiceRoleScopeCheck(Rule):
                 Violation(self.id, row[0], f"Service Role has access to {row[1]} DBs (Limit: 1)", self.severity)
                 for row in cursor.fetchall()
             ]
-        except (Exception, RuntimeError) as e:
-            if self.telemetry:
-                self.telemetry.error(f"Rule execution failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class ServiceUserScopeCheck(Rule):
@@ -137,10 +143,10 @@ class ServiceUserScopeCheck(Rule):
                 Violation(self.id, row[0], f"Service User has direct access to {row[1]} DBs", self.severity)
                 for row in cursor.fetchall()
             ]
-        except (Exception, RuntimeError) as e:
-            if self.telemetry:
-                self.telemetry.error(f"Rule execution failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class ReadOnlyRoleIntegrityCheck(Rule):
@@ -195,10 +201,10 @@ class ReadOnlyRoleIntegrityCheck(Rule):
                 Violation(self.id, row[0], f"Read-Only Role has '{row[1]}' on {row[2]} {row[3]}", self.severity)
                 for row in cursor.fetchall()
             ]
-        except (Exception, RuntimeError) as e:
-            if self.telemetry:
-                self.telemetry.error(f"Rule execution failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class ReadOnlyUserIntegrityCheck(Rule):
@@ -259,10 +265,10 @@ class ReadOnlyUserIntegrityCheck(Rule):
                 Violation(self.id, row[0], f"Read-Only User has '{row[1]}' check on {row[2]}", self.severity)
                 for row in cursor.fetchall()
             ]
-        except (Exception, RuntimeError) as e:
-            if self.telemetry:
-                self.telemetry.error(f"Rule execution failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -310,10 +316,10 @@ class ProgrammaticAccessTokenCheck(Rule):
                     detail = f"PAT '{token_name}' for user '{user_name}' expires > {_PAT_MAX_EXPIRY_DAYS} days from now"
                 violations.append(Violation(self.id, str(user_name), detail, self.severity))
             return violations
-        except (Exception, RuntimeError) as e:
-            if self.telemetry:
-                self.telemetry.error(f"Rule execution failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class AIRedactPolicyCoverageCheck(Rule):
@@ -362,10 +368,10 @@ class AIRedactPolicyCoverageCheck(Rule):
                 )
                 for row in cursor.fetchall()
             ]
-        except (Exception, RuntimeError) as e:
-            if self.telemetry:
-                self.telemetry.error(f"Rule execution failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class AuthorizationPolicyCheck(Rule):
@@ -406,10 +412,10 @@ class AuthorizationPolicyCheck(Rule):
                 )
                 for row in cursor.fetchall()
             ]
-        except (Exception, RuntimeError) as e:
-            if self.telemetry:
-                self.telemetry.error(f"Rule execution failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class TrustCenterExtensionsCheck(Rule):
@@ -451,10 +457,10 @@ class TrustCenterExtensionsCheck(Rule):
                 )
                 for row in cursor.fetchall()
             ]
-        except (Exception, RuntimeError) as e:
-            if self.telemetry:
-                self.telemetry.error(f"Rule execution failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class PrivateLinkOnlyEnforcementCheck(Rule):
@@ -499,10 +505,10 @@ class PrivateLinkOnlyEnforcementCheck(Rule):
                         )
                     ]
             return []
-        except (Exception, RuntimeError) as e:
-            if self.telemetry:
-                self.telemetry.error(f"Rule execution failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class SnowparkContainerServicesSecurityCheck(Rule):
@@ -551,7 +557,7 @@ class SnowparkContainerServicesSecurityCheck(Rule):
                         )
                     )
             return violations
-        except (Exception, RuntimeError) as e:
-            if self.telemetry:
-                self.telemetry.error(f"Rule execution failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc

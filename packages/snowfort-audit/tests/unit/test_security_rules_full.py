@@ -3,6 +3,9 @@
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
+import pytest
+
+from snowfort_audit.domain.rule_definitions import RuleExecutionError
 from snowfort_audit.domain.rules._grants import admin_role_user_counts
 from snowfort_audit.domain.rules.security import (
     AdminExposureCheck,
@@ -51,7 +54,8 @@ def test_admin_generic():
 def test_mfa_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert MFAEnforcementCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        MFAEnforcementCheck().check_online(c)
 
 
 def test_network_no_policy():
@@ -203,7 +207,8 @@ def test_zombie_role():
 def test_zombie_role_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert ZombieRoleCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        ZombieRoleCheck().check_online(c)
 
 
 def test_federated_excludes_zombies_and_service():
@@ -291,7 +296,8 @@ def test_mfa_acct_true():
 def test_mfa_acct_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert MFAAccountEnforcementCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        MFAAccountEnforcementCheck().check_online(c)
 
 
 def test_cis_found():

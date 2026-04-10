@@ -58,7 +58,11 @@ class TestGovernanceRules:
     def test_account_budget_enforcement_budgets_unavailable(self):
         rule = AccountBudgetEnforcement()
         mock_cursor = MagicMock()
-        mock_cursor.execute.side_effect = [Exception("BUDGETS missing"), Exception("BC_USAGE unavailable")]
+        err1 = Exception("BUDGETS missing")
+        err1.errno = 2003
+        err2 = Exception("BC_USAGE unavailable")
+        err2.errno = 2003
+        mock_cursor.execute.side_effect = [err1, err2]
         violations = rule.check_online(mock_cursor)
         assert len(violations) == 1
         assert "not found or not accessible" in violations[0].message

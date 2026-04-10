@@ -2,6 +2,9 @@
 
 from unittest.mock import MagicMock
 
+import pytest
+
+from snowfort_audit.domain.rule_definitions import RuleExecutionError
 from snowfort_audit.domain.rules.reliability import (
     AdequateTimeTravelRetentionCheck,
     FailedTaskDetectionCheck,
@@ -46,7 +49,8 @@ def test_replication_replicated():
 def test_replication_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert ReplicationCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        ReplicationCheck().check_online(c)
 
 
 def test_retention_zero():
@@ -58,7 +62,8 @@ def test_retention_zero():
 def test_retention_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert RetentionSafetyCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        RetentionSafetyCheck().check_online(c)
 
 
 def test_adequate_retention():
@@ -70,7 +75,8 @@ def test_adequate_retention():
 def test_adequate_retention_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert AdequateTimeTravelRetentionCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        AdequateTimeTravelRetentionCheck().check_online(c)
 
 
 def test_schema_evolution_static():
@@ -97,7 +103,8 @@ def test_schema_evolution_online():
 def test_schema_evolution_online_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert SchemaEvolutionCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        SchemaEvolutionCheck().check_online(c)
 
 
 def test_failover_group_missing_objects():
@@ -125,7 +132,8 @@ def test_failover_group_none():
 def test_failover_group_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert FailoverGroupCompletenessCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        FailoverGroupCompletenessCheck().check_online(c)
 
 
 def test_replication_lag_high():
@@ -145,7 +153,8 @@ def test_replication_lag_none():
 def test_replication_lag_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert ReplicationLagMonitoringCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        ReplicationLagMonitoringCheck().check_online(c)
 
 
 def test_failed_task():
@@ -163,7 +172,8 @@ def test_failed_task_none():
 def test_failed_task_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert FailedTaskDetectionCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        FailedTaskDetectionCheck().check_online(c)
 
 
 def test_pipeline_replication():
@@ -183,7 +193,8 @@ def test_pipeline_replication_empty():
 def test_pipeline_replication_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert PipelineObjectReplicationCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        PipelineObjectReplicationCheck().check_online(c)
 
 
 def test_pipeline_replication_dedup():

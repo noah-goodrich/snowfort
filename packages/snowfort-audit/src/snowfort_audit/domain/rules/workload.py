@@ -5,7 +5,13 @@ from typing import TYPE_CHECKING, Any
 from snowfort_audit.domain.financials import FinancialEvaluator
 from snowfort_audit.domain.models import WarehouseSpec
 from snowfort_audit.domain.protocols import TelemetryPort
-from snowfort_audit.domain.rule_definitions import Rule, Severity, Violation
+from snowfort_audit.domain.rule_definitions import (
+    Rule,
+    RuleExecutionError,
+    Severity,
+    Violation,
+    is_allowlisted_sf_error,
+)
 from snowfort_audit.domain.warehouse_specs import get_warehouse_specs
 
 if TYPE_CHECKING:
@@ -60,10 +66,10 @@ class WorkloadEfficiencyCheck(Rule):
                 if violation:
                     violations.append(violation)
             return violations
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"WorkloadEfficiencyCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
     def _evaluate_efficiency(self, row: Any) -> Violation | None:
         partitions = row[1]

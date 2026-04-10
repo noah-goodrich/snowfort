@@ -4,6 +4,7 @@ import pytest
 
 from snowfort_audit.domain.financials import FinancialEvaluator
 from snowfort_audit.domain.models import PricingConfig
+from snowfort_audit.domain.rule_definitions import RuleExecutionError
 from snowfort_audit.domain.rules.workload import WorkloadEfficiencyCheck
 from snowfort_audit.infrastructure.database_errors import SnowflakeConnectorError
 
@@ -70,5 +71,5 @@ def test_perf_006_exception_handling(rule):
     mock_cursor = MagicMock()
     mock_cursor.execute.side_effect = SnowflakeConnectorError("DB Fail")
 
-    violations = rule.check_online(mock_cursor)
-    assert violations == []
+    with pytest.raises(RuleExecutionError):
+        rule.check_online(mock_cursor)

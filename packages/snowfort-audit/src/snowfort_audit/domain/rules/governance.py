@@ -6,8 +6,10 @@ from snowfort_audit.domain.protocols import TelemetryPort
 from snowfort_audit.domain.rule_definitions import (
     SQL_EXCLUDE_SYSTEM_AND_SNOWFORT,
     Rule,
+    RuleExecutionError,
     Severity,
     Violation,
+    is_allowlisted_sf_error,
     is_excluded_db_or_warehouse_name,
 )
 from snowfort_audit.domain.scan_context import (
@@ -88,10 +90,10 @@ class FutureGrantsAntiPatternCheck(Rule):
                 )
                 for row in cursor.fetchall()
             ]
-        except (Exception, RuntimeError) as e:
-            if self.telemetry:
-                self.telemetry.error(f"Rule execution failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class ObjectDocumentationCheck(Rule):
@@ -151,10 +153,10 @@ class ObjectDocumentationCheck(Rule):
                 )
                 for row in rows
             ]
-        except (Exception, RuntimeError) as e:
-            if self.telemetry:
-                self.telemetry.error(f"Rule execution failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class AccountBudgetEnforcement(Rule):
@@ -194,7 +196,9 @@ class AccountBudgetEnforcement(Rule):
                     )
                 ]
             return []
-        except Exception:
+        except Exception as exc:
+            if not is_allowlisted_sf_error(exc):
+                raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
             # Fallback check for BUDGET_ALERTS if BUDGETS view is unavailable
             try:
                 cursor.execute("SELECT COUNT(*) FROM SNOWFLAKE.BC_USAGE.BUDGET_ALERTS")
@@ -210,16 +214,18 @@ class AccountBudgetEnforcement(Rule):
                         )
                     ]
                 return []
-            except Exception:
-                return [
-                    Violation(
-                        self.id,
-                        "Account",
-                        "Snowflake Budgets feature not found or not accessible.",
-                        self.severity,
-                        remediation_key=self.remediation_key,
-                    )
-                ]
+            except Exception as exc2:
+                if is_allowlisted_sf_error(exc2):
+                    return [
+                        Violation(
+                            self.id,
+                            "Account",
+                            "Snowflake Budgets feature not found or not accessible.",
+                            self.severity,
+                            remediation_key=self.remediation_key,
+                        )
+                    ]
+                raise RuleExecutionError(self.id, str(exc2), cause=exc2) from exc2
 
 
 class SensitiveDataClassificationCoverageCheck(Rule):
@@ -307,10 +313,10 @@ class SensitiveDataClassificationCoverageCheck(Rule):
                 )
                 for row in cursor.fetchall()
             ]
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"SensitiveDataClassificationCoverageCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class MaskingPolicyCoverageExtendedCheck(Rule):
@@ -368,13 +374,10 @@ class MaskingPolicyCoverageExtendedCheck(Rule):
                 )
                 for row in cursor.fetchall()
             ]
-        except Exception as e:
-            err_str = str(e).lower()
-            if "does not exist" in err_str or "not authorized" in err_str or "002003" in err_str:
-                if self.telemetry:
-                    self.telemetry.debug(f"GOV_005 skipped (TAG_REFERENCES/POLICY_REFERENCES not available): {e}")
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
                 return []
-            raise
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class InboundShareRiskCheck(Rule):
@@ -416,13 +419,10 @@ class InboundShareRiskCheck(Rule):
                 LIMIT 50
             """)
             rows = cursor.fetchall()
-        except Exception as e:
-            err_str = str(e).lower()
-            if "does not exist" in err_str or "not authorized" in err_str or "002003" in err_str:
-                if self.telemetry:
-                    self.telemetry.debug(f"GOV_006 skipped: {e}")
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
                 return []
-            raise
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
         violations = []
         for row in rows:
             db_name, share_name, owner = row[0], row[1], row[2]
@@ -475,13 +475,10 @@ class OutboundShareRiskCheck(Rule):
                 LIMIT 50
             """)
             rows = cursor.fetchall()
-        except Exception as e:
-            err_str = str(e).lower()
-            if "does not exist" in err_str or "not authorized" in err_str or "002003" in err_str:
-                if self.telemetry:
-                    self.telemetry.debug(f"GOV_007 skipped (SHARES view not available): {e}")
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
                 return []
-            raise
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
         violations = []
         for row in rows:
             share_name, owner, comment = row[0], row[1], row[2]
@@ -535,13 +532,10 @@ class CrossRegionInferenceCheck(Rule):
         try:
             cursor.execute("SHOW PARAMETERS LIKE 'CORTEX_ENABLED_CROSS_REGION' IN ACCOUNT")
             rows = cursor.fetchall()
-        except Exception as e:
-            err_str = str(e).lower()
-            if "does not exist" in err_str or "not authorized" in err_str or "002003" in err_str:
-                if self.telemetry:
-                    self.telemetry.debug(f"GOV_008 skipped (SHOW PARAMETERS not authorized): {e}")
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
                 return []
-            raise
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
         for row in rows:
             # SHOW PARAMETERS returns: name, value, default, level, description, type
             value = str(row[1]).upper() if len(row) > 1 else ""
@@ -624,7 +618,7 @@ class IcebergTableGovernanceCheck(Rule):
                         )
                     )
             return violations
-        except (Exception, RuntimeError) as e:
-            if self.telemetry:
-                self.telemetry.error(f"Rule execution failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc

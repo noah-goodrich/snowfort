@@ -16,6 +16,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from snowfort_audit.domain.rule_definitions import RuleExecutionError
 from snowfort_audit.domain.rules.governance import (
     CrossRegionInferenceCheck,
     InboundShareRiskCheck,
@@ -47,6 +48,7 @@ def _cursor_raising(exc):
 
 def _not_found_error():
     err = Exception("Object 'X' does not exist.")
+    err.errno = 2003
     return err
 
 
@@ -75,7 +77,7 @@ class TestDynamicTableRefreshLagCheck:
 
     def test_unexpected_error_propagates(self):
         rule = DynamicTableRefreshLagCheck()
-        with pytest.raises(RuntimeError):
+        with pytest.raises(RuleExecutionError):
             rule.check_online(_cursor_raising(RuntimeError("unexpected")))
 
 
@@ -103,7 +105,7 @@ class TestDynamicTableFailureDetectionCheck:
 
     def test_unexpected_error_propagates(self):
         rule = DynamicTableFailureDetectionCheck()
-        with pytest.raises(RuntimeError):
+        with pytest.raises(RuleExecutionError):
             rule.check_online(_cursor_raising(RuntimeError("unexpected")))
 
 
@@ -130,7 +132,7 @@ class TestMaskingPolicyCoverageExtendedCheck:
 
     def test_unexpected_error_propagates(self):
         rule = MaskingPolicyCoverageExtendedCheck()
-        with pytest.raises(RuntimeError):
+        with pytest.raises(RuleExecutionError):
             rule.check_online(_cursor_raising(RuntimeError("unexpected")))
 
 
@@ -254,7 +256,7 @@ class TestDeveloperSandboxSprawlCheck:
 
     def test_unexpected_error_propagates(self):
         rule = DeveloperSandboxSprawlCheck()
-        with pytest.raises(RuntimeError):
+        with pytest.raises(RuleExecutionError):
             rule.check_online(_cursor_raising(RuntimeError("unexpected")))
 
 

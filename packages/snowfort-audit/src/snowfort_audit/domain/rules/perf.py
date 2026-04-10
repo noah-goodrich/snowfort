@@ -7,8 +7,10 @@ from snowfort_audit.domain.rule_definitions import (
     SQL_EXCLUDE_SYSTEM_AND_SNOWFORT,
     SQL_EXCLUDE_SYSTEM_AND_SNOWFORT_DB,
     Rule,
+    RuleExecutionError,
     Severity,
     Violation,
+    is_allowlisted_sf_error,
     is_excluded_db_or_warehouse_name,
 )
 from snowfort_audit.domain.scan_context import (
@@ -83,9 +85,10 @@ class ClusterKeyValidationCheck(Rule):
 
             for row in tables:
                 violations.extend(self._check_table_clustering(cursor, row))
-        except (Exception, RuntimeError) as e:
-            if self.telemetry:
-                self.telemetry.error(f"ClusterKeyValidationCheck failed: {e}")
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
         return violations
 
@@ -168,10 +171,10 @@ class RemoteSpillageCheck(Rule):
                 )
                 for row in cursor.fetchall()
             ]
-        except (Exception, RuntimeError) as e:
-            if self.telemetry:
-                self.telemetry.error(f"RemoteSpillageCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class LocalSpillageCheck(Rule):
@@ -211,10 +214,10 @@ class LocalSpillageCheck(Rule):
                 )
                 for row in cursor.fetchall()
             ]
-        except (Exception, RuntimeError) as e:
-            if self.telemetry:
-                self.telemetry.error(f"LocalSpillageCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class QueryQueuingDetectionCheck(Rule):
@@ -256,10 +259,10 @@ class QueryQueuingDetectionCheck(Rule):
                 )
                 for row in cursor.fetchall()
             ]
-        except (Exception, RuntimeError) as e:
-            if self.telemetry:
-                self.telemetry.error(f"QueryQueuingDetectionCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class DynamicTableLagCheck(Rule):
@@ -302,10 +305,10 @@ class DynamicTableLagCheck(Rule):
                 )
                 for row in cursor.fetchall()
             ]
-        except (Exception, RuntimeError) as e:
-            if self.telemetry:
-                self.telemetry.error(f"DynamicTableLagCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class ClusteringKeyQualityCheck(Rule):
@@ -379,10 +382,10 @@ class ClusteringKeyQualityCheck(Rule):
                         )
                     )
             return violations
-        except (Exception, RuntimeError) as e:
-            if self.telemetry:
-                self.telemetry.error(f"ClusteringKeyQualityCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class WarehouseWorkloadIsolationCheck(Rule):
@@ -426,10 +429,10 @@ class WarehouseWorkloadIsolationCheck(Rule):
                 )
                 for row in cursor.fetchall()
             ]
-        except (Exception, RuntimeError) as e:
-            if self.telemetry:
-                self.telemetry.error(f"WarehouseWorkloadIsolationCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class PoorPartitionPruningDetectionCheck(Rule):
@@ -480,10 +483,10 @@ class PoorPartitionPruningDetectionCheck(Rule):
                 )
                 for row in cursor.fetchall()
             ]
-        except (Exception, RuntimeError) as e:
-            if self.telemetry:
-                self.telemetry.error(f"PoorPartitionPruningDetectionCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class QueryLatencySLOCheck(Rule):
@@ -548,7 +551,7 @@ class QueryLatencySLOCheck(Rule):
                 )
                 for row in cursor.fetchall()
             ]
-        except (Exception, RuntimeError) as e:
-            if self.telemetry:
-                self.telemetry.error(f"QueryLatencySLOCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc

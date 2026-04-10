@@ -13,6 +13,7 @@ from snowfort_audit.domain.scan_context import ScanContext
 from ..domain.rule_definitions import (
     EXCLUDED_DATABASES_DEFAULT,
     Rule,
+    RuleExecutionError,
     Violation,
 )
 
@@ -186,6 +187,7 @@ class OnlineScanUseCase:
         self.rules = rules
         self.telemetry = telemetry
         self.profile_timings: list[RuleTiming] = []
+        self.errored_rules: list[str] = []
 
     def execute(
         self,
@@ -202,6 +204,7 @@ class OnlineScanUseCase:
         total = len(self.rules)
         self.telemetry.step("Engaging Online Sensors: Scanning live Snowflake environment...")
         self.profile_timings = []
+        self.errored_rules = []
 
         # Establish one good connection first so we don't spam multiple MFA/connection attempts in parallel
         try:
@@ -229,10 +232,12 @@ class OnlineScanUseCase:
 
         if use_parallel:
             self.telemetry.info(f"  Running {total} rules in parallel with {workers} workers.")
-            violations, timings = self._execute_parallel(workers, profile, scan_context)
+            violations, timings, errored = self._execute_parallel(workers, profile, scan_context)
         else:
             self.telemetry.info(f"  Running {total} rules (--workers N for parallel, --log-level DEBUG for detail).")
-            violations, timings = self._execute_sequential(profile, scan_context)
+            violations, timings, errored = self._execute_sequential(profile, scan_context)
+
+        self.errored_rules = errored
 
         violations, view_timings = self._execute_view_phase(violations, include_snowfort_db, profile, workers)
         self.profile_timings = timings + view_timings
@@ -242,7 +247,10 @@ class OnlineScanUseCase:
         if before > len(violations):
             self.telemetry.debug(f"  Filtered {before - len(violations)} violation(s) from system/tool databases.")
 
-        self.telemetry.info(f"  Completed: {len(violations)} total violation(s) from {total} rules.")
+        summary = f"  Completed: {len(violations)} violation(s) from {total} rules."
+        if self.errored_rules:
+            summary += f" [bold red]{len(self.errored_rules)} rule(s) errored[/bold red] — results may be incomplete."
+        self.telemetry.info(summary)
         return violations
 
     def _execute_view_phase(
@@ -519,10 +527,11 @@ class OnlineScanUseCase:
 
     def _execute_sequential(
         self, profile: bool = False, scan_context: ScanContext | None = None
-    ) -> tuple[list[Violation], list[RuleTiming]]:
+    ) -> tuple[list[Violation], list[RuleTiming], list[str]]:
         cur: SnowflakeCursorProtocol = self.gateway.get_cursor()
         violations: list[Violation] = []
         timings: list[RuleTiming] = []
+        errored: list[str] = []
         total = len(self.rules)
         for i, rule in enumerate(self.rules):
             self.telemetry.info(f"  [{i + 1}/{total}] {rule.id}: {rule.name}")
@@ -532,16 +541,20 @@ class OnlineScanUseCase:
                 if found:
                     violations.extend(found)
                     self.telemetry.debug(f"      -> {len(found)} violation(s)")
+            except RuleExecutionError as e:
+                errored.append(rule.id)
+                self.telemetry.error(f"  ERRORED {rule.id}: {e}")
             except Exception as e:
+                errored.append(rule.id)
                 self.telemetry.error(f"Rule execution failed: {e}")
                 self.telemetry.debug(f"      -> exception in {rule.id}")
             if profile:
                 timings.append((rule.id, rule.name, time.perf_counter() - t0))
-        return violations, timings
+        return violations, timings, errored
 
     def _execute_parallel(
         self, workers: int, profile: bool = False, scan_context: ScanContext | None = None
-    ) -> tuple[list[Violation], list[RuleTiming]]:
+    ) -> tuple[list[Violation], list[RuleTiming], list[str]]:
         total = len(self.rules)
         # Partition rules: worker i gets indices i, i+workers, i+2*workers, ...
         chunks: list[list[tuple[int, Rule]]] = [[] for _ in range(workers)]
@@ -550,6 +563,7 @@ class OnlineScanUseCase:
 
         violations: list[Violation] = []
         timings: list[RuleTiming] = []
+        errored: list[str] = []
         n_done = 0
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {
@@ -564,9 +578,10 @@ class OnlineScanUseCase:
                     violations.extend(out)
                     timings.extend(chunk_timings)
                     for rule_id, err_msg in chunk_errors:
-                        self.telemetry.error(f"  Worker {worker_id}: {rule_id} failed: {err_msg}")
+                        errored.append(rule_id)
+                        self.telemetry.error(f"  ERRORED {rule_id}: {err_msg}")
                 except Exception as e:
                     self.telemetry.error(f"Rule execution failed: {e}")
                 n_done += len(chunks[worker_id])
                 self.telemetry.info(f"  Worker {worker_id + 1}/{workers}: {n_done}/{total} rules done.")
-        return violations, timings
+        return violations, timings, errored

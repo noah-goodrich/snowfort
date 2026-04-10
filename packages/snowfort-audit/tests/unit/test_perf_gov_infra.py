@@ -2,8 +2,10 @@
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from snowfort_audit.domain.models import PricingConfig
-from snowfort_audit.domain.rule_definitions import Severity, Violation
+from snowfort_audit.domain.rule_definitions import RuleExecutionError, Severity, Violation
 from snowfort_audit.domain.rules.governance import (
     AccountBudgetEnforcement,
     FutureGrantsAntiPatternCheck,
@@ -51,7 +53,8 @@ def test_cluster_key_exc():
     r = ClusterKeyValidationCheck()
     c = MagicMock()
     c.execute.side_effect = RuntimeError("err")
-    assert r.check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        r.check_online(c)
 
 
 def test_remote_spillage():
@@ -63,7 +66,8 @@ def test_remote_spillage():
 def test_remote_spillage_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert RemoteSpillageCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        RemoteSpillageCheck().check_online(c)
 
 
 def test_local_spillage():
@@ -75,7 +79,8 @@ def test_local_spillage():
 def test_local_spillage_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert LocalSpillageCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        LocalSpillageCheck().check_online(c)
 
 
 def test_query_queuing():
@@ -87,7 +92,8 @@ def test_query_queuing():
 def test_query_queuing_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert QueryQueuingDetectionCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        QueryQueuingDetectionCheck().check_online(c)
 
 
 def test_dynamic_table_lag():
@@ -99,7 +105,8 @@ def test_dynamic_table_lag():
 def test_dynamic_table_lag_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert DynamicTableLagCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        DynamicTableLagCheck().check_online(c)
 
 
 def test_clustering_key_quality_many_expressions():
@@ -121,7 +128,8 @@ def test_clustering_key_quality_mod():
 def test_clustering_key_quality_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert ClusteringKeyQualityCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        ClusteringKeyQualityCheck().check_online(c)
 
 
 def test_workload_isolation():
@@ -133,7 +141,8 @@ def test_workload_isolation():
 def test_workload_isolation_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert WarehouseWorkloadIsolationCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        WarehouseWorkloadIsolationCheck().check_online(c)
 
 
 def test_poor_pruning():
@@ -145,7 +154,8 @@ def test_poor_pruning():
 def test_poor_pruning_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert PoorPartitionPruningDetectionCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        PoorPartitionPruningDetectionCheck().check_online(c)
 
 
 def test_query_latency_slo():
@@ -157,7 +167,8 @@ def test_query_latency_slo():
 def test_query_latency_slo_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert QueryLatencySLOCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        QueryLatencySLOCheck().check_online(c)
 
 
 # --- Governance Rules ---
@@ -172,7 +183,8 @@ def test_future_grants():
 def test_future_grants_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert FutureGrantsAntiPatternCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        FutureGrantsAntiPatternCheck().check_online(c)
 
 
 def test_object_documentation():
@@ -184,7 +196,8 @@ def test_object_documentation():
 def test_object_documentation_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert ObjectDocumentationCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        ObjectDocumentationCheck().check_online(c)
 
 
 def test_budget_no_budgets():
@@ -201,7 +214,11 @@ def test_budget_has_budgets():
 
 def test_budget_both_fail():
     c = MagicMock()
-    c.execute.side_effect = RuntimeError("err")
+    err1 = RuntimeError("err")
+    err1.errno = 2003
+    err2 = RuntimeError("err")
+    err2.errno = 2003
+    c.execute.side_effect = [err1, err2]
     v = AccountBudgetEnforcement().check_online(c)
     assert len(v) == 1
 
@@ -215,7 +232,8 @@ def test_sensitive_data_classification():
 def test_sensitive_data_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert SensitiveDataClassificationCoverageCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        SensitiveDataClassificationCoverageCheck().check_online(c)
 
 
 # --- Infrastructure ---

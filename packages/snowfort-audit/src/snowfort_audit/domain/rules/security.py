@@ -11,8 +11,10 @@ from snowfort_audit.domain.protocols import TelemetryPort
 from snowfort_audit.domain.rule_definitions import (
     SQL_EXCLUDE_OBJECT_NAME_SYSTEM_AND_SNOWFORT,
     Rule,
+    RuleExecutionError,
     Severity,
     Violation,
+    is_allowlisted_sf_error,
 )
 from snowfort_audit.domain.rules._grants import (
     GRANTS_CACHE_WINDOW,
@@ -122,9 +124,10 @@ class AdminExposureCheck(Rule):
                     cursor.execute(f"SHOW GRANTS OF ROLE {role}")
                     users_with_role = [row[3] for row in cursor.fetchall() if row[2] == "USER"]
                     violations.extend(check_fn(len(users_with_role)))
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"AdminExposureCheck failed: {e}")
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
         return violations
 
 
@@ -166,9 +169,10 @@ class MFAEnforcementCheck(Rule):
                 cols = {col[0].lower(): i for i, col in enumerate(cursor.description)}
                 users = cursor.fetchall()
             violations.extend(self._check_mfa_status(users, cols, admin_users))
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"MFAEnforcementCheck failed: {e}")
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
         return violations
 
     def _get_admin_users(
@@ -489,9 +493,10 @@ class ServiceUserSecurityCheck(Rule):
                             self.violation("User", f"Service User '{name}' missing RSA Key.", Severity.MEDIUM)
                         )
 
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"Rule execution failed: {e}")
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
         return violations
 
 
@@ -567,9 +572,10 @@ class ZombieUserCheck(Rule):
                         )
                     )
 
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"Rule execution failed: {e}")
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
         return violations
 
 
@@ -657,9 +663,10 @@ class ZombieRoleCheck(Rule):
                         )
                     )
 
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"Rule execution failed: {e}")
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
         return violations
 
 
@@ -721,9 +728,10 @@ class FederatedAuthenticationCheck(Rule):
                     violations.append(
                         self.violation("User", f"User '{name}' uses password-only auth; enable MFA/SSO or key-pair.")
                     )
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"FederatedAuthenticationCheck failed: {e}")
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
         return violations
 
 
@@ -764,10 +772,10 @@ class MFAAccountEnforcementCheck(Rule):
                     )
                 ]
             return []
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"MFAAccountEnforcementCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class CISBenchmarkScannerCheck(Rule):
@@ -840,10 +848,10 @@ class PasswordPolicyCheck(Rule):
                         "No password policy defined in account; define and apply one for authentication hardening.",
                     )
                 ]
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"PasswordPolicyCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
         return []
 
 
@@ -888,9 +896,10 @@ class DataExfiltrationPreventionCheck(Rule):
                     violations.append(
                         self.violation("Account", f"Data exfiltration: {msg} (current value: {param_name}={actual}).")
                     )
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"DataExfiltrationPreventionCheck failed: {e}")
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
         return violations
 
 
@@ -923,10 +932,10 @@ class PrivateConnectivityCheck(Rule):
                         "No network policy defined; consider restricting access via network policies or private connectivity.",
                     )
                 ]
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"PrivateConnectivityCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
         return []
 
 
@@ -974,10 +983,10 @@ class DataMaskingPolicyCoverageCheck(Rule):
                 )
                 for row in cursor.fetchall()
             ]
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"DataMaskingPolicyCoverageCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class RowAccessPolicyCoverageCheck(Rule):
@@ -1025,10 +1034,10 @@ class RowAccessPolicyCoverageCheck(Rule):
                 )
                 for row in cursor.fetchall()
             ]
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"RowAccessPolicyCoverageCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class SSOCoverageCheck(Rule):
@@ -1073,7 +1082,7 @@ class SSOCoverageCheck(Rule):
                 )
                 for row in non_sso[:30]
             ]
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"SSOCoverageCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc

@@ -58,9 +58,8 @@ COST_033: []
 GOV_001: []
 GOV_002: []
 GOV_003:
-- message: Snowflake Budgets feature not found or not accessible.
-  resource: Account
-  severity: CRITICAL
+  error: RuleExecutionError
+  message: '''NoneType'' object is not subscriptable'
 GOV_004: []
 GOV_005: []
 GOV_006: []
@@ -153,8 +152,12 @@ SEC_003:
   severity: CRITICAL
 SEC_004: []
 SEC_005: []
-SEC_006: []
-SEC_007: []
+SEC_006:
+  error: RuleExecutionError
+  message: '''has_password'''
+SEC_007:
+  error: RuleExecutionError
+  message: '''last_success_login'''
 SEC_007_ROLE: []
 SEC_007_USER: []
 SEC_008:
@@ -174,7 +177,9 @@ SEC_008_ROLE: []
 SEC_008_USER: []
 SEC_009: []
 SEC_010: []
-SEC_011: []
+SEC_011:
+  error: RuleExecutionError
+  message: '''has_password'''
 SEC_012:
 - message: No password policy defined in account; define and apply one for authentication
     hardening.

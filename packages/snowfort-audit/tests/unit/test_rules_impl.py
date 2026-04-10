@@ -1,6 +1,9 @@
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock
 
+import pytest
+
+from snowfort_audit.domain.rule_definitions import RuleExecutionError
 from snowfort_audit.domain.rules.cost import (
     AggressiveAutoSuspendCheck,
     CloudServicesRatioCheck,
@@ -197,7 +200,8 @@ class TestReliabilityRules:
         rule = ReplicationCheck()
         mock_cursor = MagicMock()
         mock_cursor.execute.side_effect = RuntimeError("DB error")
-        assert rule.check_online(mock_cursor) == []
+        with pytest.raises(RuleExecutionError):
+            rule.check_online(mock_cursor)
 
     def test_retention_safety_check(self):
         rule = RetentionSafetyCheck()
@@ -210,7 +214,8 @@ class TestReliabilityRules:
         rule = RetentionSafetyCheck()
         mock_cursor = MagicMock()
         mock_cursor.execute.side_effect = RuntimeError("error")
-        assert rule.check_online(mock_cursor) == []
+        with pytest.raises(RuleExecutionError):
+            rule.check_online(mock_cursor)
 
     def test_adequate_time_travel_retention_check(self):
         rule = AdequateTimeTravelRetentionCheck()
@@ -225,7 +230,8 @@ class TestReliabilityRules:
         rule = AdequateTimeTravelRetentionCheck()
         mock_cursor = MagicMock()
         mock_cursor.execute.side_effect = RuntimeError("error")
-        assert rule.check_online(mock_cursor) == []
+        with pytest.raises(RuleExecutionError):
+            rule.check_online(mock_cursor)
 
     def test_schema_evolution_check(self):
         rule = SchemaEvolutionCheck()
@@ -254,8 +260,8 @@ class TestReliabilityRules:
         rule = SchemaEvolutionCheck()
         mock_cursor = MagicMock()
         mock_cursor.execute.side_effect = RuntimeError("DB Error")
-        violations = rule.check_online(mock_cursor)
-        assert violations == []
+        with pytest.raises(RuleExecutionError):
+            rule.check_online(mock_cursor)
 
     def test_aggressive_auto_suspend_check_online(self):
         rule = AggressiveAutoSuspendCheck()
@@ -305,7 +311,8 @@ class TestReliabilityRules:
         rule = CloudServicesRatioCheck()
         mock_cursor = MagicMock()
         mock_cursor.execute.side_effect = RuntimeError("DB unavailable")
-        assert rule.check_online(mock_cursor) == []
+        with pytest.raises(RuleExecutionError):
+            rule.check_online(mock_cursor)
 
     def test_runaway_query_check(self):
         rule = RunawayQueryCheck()

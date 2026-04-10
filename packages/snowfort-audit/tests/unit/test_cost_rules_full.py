@@ -2,7 +2,10 @@
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from snowfort_audit.domain.conventions import SnowfortConventions, WarehouseConventions
+from snowfort_audit.domain.rule_definitions import RuleExecutionError
 from snowfort_audit.domain.rules.cost import (
     AggressiveAutoSuspendCheck,
     AutomaticClusteringCostBenefitCheck,
@@ -94,7 +97,8 @@ def test_zombie_wh():
 def test_zombie_wh_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert ZombieWarehouseCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        ZombieWarehouseCheck().check_online(c)
 
 
 def test_cloud_svc():
@@ -106,7 +110,8 @@ def test_cloud_svc():
 def test_cloud_svc_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert CloudServicesRatioCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        CloudServicesRatioCheck().check_online(c)
 
 
 def test_runaway_high():
@@ -154,7 +159,8 @@ def test_underutil():
 def test_underutil_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert UnderutilizedWarehouseCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        UnderutilizedWarehouseCheck().check_online(c)
 
 
 def test_high_churn():
@@ -166,7 +172,8 @@ def test_high_churn():
 def test_high_churn_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert HighChurnPermanentTableCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        HighChurnPermanentTableCheck().check_online(c)
 
 
 def test_high_churn_exclusions():
@@ -202,7 +209,8 @@ def test_per_wh_timeout():
 def test_per_wh_timeout_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert PerWarehouseStatementTimeoutCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        PerWarehouseStatementTimeoutCheck().check_online(c)
 
 
 def test_stale():
@@ -214,7 +222,8 @@ def test_stale():
 def test_stale_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert StaleTableDetectionCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        StaleTableDetectionCheck().check_online(c)
 
 
 def test_staging():
@@ -226,7 +235,8 @@ def test_staging():
 def test_staging_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert StagingTableTypeOptimizationCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        StagingTableTypeOptimizationCheck().check_online(c)
 
 
 def test_unused_mv():
@@ -238,7 +248,8 @@ def test_unused_mv():
 def test_unused_mv_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert UnusedMaterializedViewCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        UnusedMaterializedViewCheck().check_online(c)
 
 
 def test_data_transfer_high():
@@ -262,7 +273,8 @@ def test_data_transfer_none():
 def test_data_transfer_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert DataTransferMonitoringCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        DataTransferMonitoringCheck().check_online(c)
 
 
 def test_qas():
@@ -274,7 +286,8 @@ def test_qas():
 def test_qas_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert QASEligibilityRecommendationCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        QASEligibilityRecommendationCheck().check_online(c)
 
 
 def test_auto_clustering():
@@ -286,7 +299,8 @@ def test_auto_clustering():
 def test_auto_clustering_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert AutomaticClusteringCostBenefitCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        AutomaticClusteringCostBenefitCheck().check_online(c)
 
 
 def test_search_opt():
@@ -298,4 +312,5 @@ def test_search_opt():
 def test_search_opt_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert SearchOptimizationCostBenefitCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        SearchOptimizationCostBenefitCheck().check_online(c)

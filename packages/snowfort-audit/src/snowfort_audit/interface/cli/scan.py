@@ -146,7 +146,7 @@ def _run_online_scan(
     violations = use_case.execute(workers=workers, include_snowfort_db=include_snowfort_db, profile=profile)
     rules = container.get_rules()
     timings = use_case.profile_timings if profile else []
-    return violations, rules, gateway, timings
+    return violations, rules, gateway, timings, use_case.errored_rules
 
 
 def _emit_scan_output(
@@ -160,16 +160,37 @@ def _emit_scan_output(
     target_name: str,
     verbose: bool,
     audit_metadata: dict,
+    errored_count: int = 0,
 ) -> None:
     """Print scan result: quiet one-liner, guided report, or flat report."""
     if quiet:
         sc = result.scorecard
-        print(f"Score: {sc.compliance_score}/100 ({sc.grade}) — {sc.total_violations} violation(s)")
+        errored_suffix = f", {errored_count} rule(s) errored" if errored_count else ""
+        print(f"Score: {sc.compliance_score}/100 ({sc.grade}) — {sc.total_violations} violation(s){errored_suffix}")
         return
     if use_guided:
-        report_findings_guided(violations, rules, telemetry, manifest, target_name, audit_metadata, result=result)
+        report_findings_guided(
+            violations,
+            rules,
+            telemetry,
+            manifest,
+            target_name,
+            audit_metadata,
+            result=result,
+            errored_count=errored_count,
+        )
     else:
-        report_findings(violations, rules, telemetry, manifest, target_name, verbose, audit_metadata, result=result)
+        report_findings(
+            violations,
+            rules,
+            telemetry,
+            manifest,
+            target_name,
+            verbose,
+            audit_metadata,
+            result=result,
+            errored_count=errored_count,
+        )
 
 
 def _log_scan_preamble(telemetry, quiet: bool, path: str, rule_ids: tuple, cortex: bool, offline: bool) -> bool:
@@ -303,6 +324,7 @@ def scan(
     rules = []
     gateway = None
     profile_timings = []
+    errored_rules: list[str] = []
     try:
         with timed_operation("Scan"):
             rule_filter = list(rule_ids) if rule_ids else None
@@ -313,7 +335,7 @@ def scan(
                 target_name = path
                 account_id = ""
             else:
-                violations, rules, gateway, profile_timings = _run_online_scan(
+                violations, rules, gateway, profile_timings, errored_rules = _run_online_scan(
                     container,
                     account,
                     user,
@@ -347,6 +369,7 @@ def scan(
                 target_name,
                 verbose,
                 audit_metadata,
+                errored_count=len(errored_rules),
             )
 
             if profile and profile_timings:

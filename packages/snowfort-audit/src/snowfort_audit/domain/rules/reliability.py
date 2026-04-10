@@ -7,8 +7,10 @@ from snowfort_audit.domain.rule_definitions import (
     SQL_EXCLUDE_SYSTEM_AND_SNOWFORT,
     SQL_EXCLUDE_SYSTEM_AND_SNOWFORT_DB,
     Rule,
+    RuleExecutionError,
     Severity,
     Violation,
+    is_allowlisted_sf_error,
     is_excluded_db_or_warehouse_name,
 )
 from snowfort_audit.domain.scan_context import (
@@ -75,8 +77,10 @@ class ReplicationCheck(Rule):
                         )
                     )
 
-        except Exception:
-            pass
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
         return violations
 
@@ -160,8 +164,10 @@ class RetentionSafetyCheck(Rule):
                 )
                 for row in rows
             ]
-        except Exception:
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class AdequateTimeTravelRetentionCheck(Rule):
@@ -220,8 +226,10 @@ class AdequateTimeTravelRetentionCheck(Rule):
                 )
                 for row in rows
             ]
-        except Exception:
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class SchemaEvolutionCheck(Rule):
@@ -295,8 +303,10 @@ class SchemaEvolutionCheck(Rule):
                 )
                 for row in rows
             ]
-        except Exception:
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class FailoverGroupCompletenessCheck(Rule):
@@ -338,10 +348,10 @@ class FailoverGroupCompletenessCheck(Rule):
                         )
                     )
             return violations
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"FailoverGroupCompletenessCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class ReplicationLagMonitoringCheck(Rule):
@@ -382,10 +392,10 @@ class ReplicationLagMonitoringCheck(Rule):
                 )
                 for row in cursor.fetchall()
             ]
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"ReplicationLagMonitoringCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class FailedTaskDetectionCheck(Rule):
@@ -429,10 +439,10 @@ class FailedTaskDetectionCheck(Rule):
                 )
                 for row in cursor.fetchall()
             ]
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"FailedTaskDetectionCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class PipelineObjectReplicationCheck(Rule):
@@ -483,14 +493,10 @@ class PipelineObjectReplicationCheck(Rule):
                         )
                     )
             return violations
-        except Exception as e:
-            if self.telemetry:
-                err_str = str(e).lower()
-                if "does not exist" in err_str or "not authorized" in err_str or "002003" in err_str:
-                    self.telemetry.debug(f"REL_008 skipped (REPLICATION_DATABASES not available): {e}")
-                else:
-                    self.telemetry.error(f"PipelineObjectReplicationCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class DynamicTableRefreshLagCheck(Rule):
@@ -550,13 +556,10 @@ class DynamicTableRefreshLagCheck(Rule):
                     )
                 )
             return violations
-        except Exception as e:
-            err_str = str(e).lower()
-            if "does not exist" in err_str or "not authorized" in err_str or "002003" in err_str:
-                if self.telemetry:
-                    self.telemetry.debug(f"REL_009 skipped (DYNAMIC_TABLE_REFRESH_HISTORY not available): {e}")
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
                 return []
-            raise
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class DynamicTableFailureDetectionCheck(Rule):
@@ -613,10 +616,7 @@ class DynamicTableFailureDetectionCheck(Rule):
                     )
                 )
             return violations
-        except Exception as e:
-            err_str = str(e).lower()
-            if "does not exist" in err_str or "not authorized" in err_str or "002003" in err_str:
-                if self.telemetry:
-                    self.telemetry.debug(f"REL_010 skipped (DYNAMIC_TABLE_REFRESH_HISTORY not available): {e}")
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
                 return []
-            raise
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc

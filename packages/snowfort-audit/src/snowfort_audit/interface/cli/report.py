@@ -181,6 +181,7 @@ def report_findings(
     verbose: bool = False,
     audit_metadata: dict | None = None,
     result: AuditResult | None = None,
+    errored_count: int = 0,
 ) -> None:
     if manifest:
         _render_manifest_json(violations, telemetry, audit_metadata)
@@ -189,6 +190,8 @@ def report_findings(
     result = result or AuditResult.from_violations(violations, metadata=audit_metadata or {})
     _render_scorecard_flat(console, result, target_name)
     _render_pillar_table_flat(console, result.scorecard)
+    if errored_count:
+        console.print(f"[bold red]Warning: {errored_count} rule(s) errored — results may be incomplete.[/bold red]")
     if not violations:
         console.print("[green]Perfect Score: No WAF violations detected.[/green]")
         return
@@ -324,6 +327,7 @@ def report_findings_guided(
     target_name: str = ".",
     audit_metadata: dict | None = None,
     result: AuditResult | None = None,
+    errored_count: int = 0,
 ) -> None:
     if manifest:
         _render_manifest_json(violations, telemetry, audit_metadata)
@@ -333,9 +337,11 @@ def report_findings_guided(
     scorecard = result.scorecard
     _render_scorecard_guided(console, result, target_name)
     _render_pillar_table_guided(console, scorecard)
+    if errored_count:
+        console.print(f"[bold red]Warning: {errored_count} rule(s) errored — results may be incomplete.[/bold red]")
     if not violations:
         console.print("[green]Perfect Score: No WAF violations detected.[/green]")
-        console.print("[dim]Run snowfort audit rules to see all 83 checks.[/dim]")
+        console.print("[dim]Run snowfort audit rules to see all 116 checks.[/dim]")
         return
     violations_by_rule: dict[str, list] = {}
     for v in violations:

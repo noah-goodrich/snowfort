@@ -9,8 +9,10 @@ from snowfort_audit.domain.rule_definitions import (
     SQL_EXCLUDE_SYSTEM_AND_SNOWFORT,
     SQL_EXCLUDE_SYSTEM_AND_SNOWFORT_DB,
     Rule,
+    RuleExecutionError,
     Severity,
     Violation,
+    is_allowlisted_sf_error,
     is_excluded_db_or_warehouse_name,
 )
 from snowfort_audit.domain.scan_context import TR_DOMAIN, TR_OBJECT_NAME, TR_TAG_NAME, TR_TAG_VALUE
@@ -106,8 +108,10 @@ class AggressiveAutoSuspendCheck(Rule):
 
             for wh in warehouses:
                 violations.extend(self._check_warehouse_suspension(wh, cols, env_tags))
-        except Exception:
-            pass
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
         return violations
 
     def _get_warehouse_env_tags(
@@ -253,8 +257,10 @@ class ZombieWarehouseCheck(Rule):
                         )
                     )
             return violations
-        except Exception:
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class CloudServicesRatioCheck(Rule):
@@ -297,8 +303,10 @@ class CloudServicesRatioCheck(Rule):
                 )
                 for row in cursor.fetchall()
             ]
-        except Exception:
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class RunawayQueryCheck(Rule):
@@ -417,8 +425,10 @@ class UnderutilizedWarehouseCheck(Rule):
                     )
                 )
             return violations
-        except Exception:
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class HighChurnPermanentTableCheck(Rule):
@@ -484,8 +494,10 @@ class HighChurnPermanentTableCheck(Rule):
                     )
                 )
             return violations
-        except Exception:
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class PerWarehouseStatementTimeoutCheck(Rule):
@@ -566,9 +578,10 @@ class PerWarehouseStatementTimeoutCheck(Rule):
                             f"Warehouse has no or default statement timeout ({timeout_sec}s). Set a sensible limit.",
                         )
                     )
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"PerWarehouseStatementTimeoutCheck failed: {e}")
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
         return violations
 
 
@@ -624,10 +637,10 @@ class StaleTableDetectionCheck(Rule):
                 )
                 for row in cursor.fetchall()
             ]
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"StaleTableDetectionCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class StagingTableTypeOptimizationCheck(Rule):
@@ -670,10 +683,10 @@ class StagingTableTypeOptimizationCheck(Rule):
                     msg += f" Fail-safe bytes: {row[3]:,}."
                 violations.append(self.violation(fq, msg))
             return violations
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"StagingTableTypeOptimizationCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class UnusedMaterializedViewCheck(Rule):
@@ -723,10 +736,10 @@ class UnusedMaterializedViewCheck(Rule):
                 )
                 for row in cursor.fetchall()
             ]
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"UnusedMaterializedViewCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class DataTransferMonitoringCheck(Rule):
@@ -767,10 +780,10 @@ class DataTransferMonitoringCheck(Rule):
                         f"High data transfer in last 7 days: {total_bytes / (1024**3):.1f} GB. Review replication and egress.",
                     )
                 ]
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"DataTransferMonitoringCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
         return []
 
 
@@ -811,10 +824,10 @@ class QASEligibilityRecommendationCheck(Rule):
                 )
                 for row in cursor.fetchall()
             ]
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"QASEligibilityRecommendationCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class AutomaticClusteringCostBenefitCheck(Rule):
@@ -857,10 +870,10 @@ class AutomaticClusteringCostBenefitCheck(Rule):
                 )
                 for row in cursor.fetchall()
             ]
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"AutomaticClusteringCostBenefitCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class SearchOptimizationCostBenefitCheck(Rule):
@@ -903,7 +916,7 @@ class SearchOptimizationCostBenefitCheck(Rule):
                 )
                 for row in cursor.fetchall()
             ]
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"SearchOptimizationCostBenefitCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
