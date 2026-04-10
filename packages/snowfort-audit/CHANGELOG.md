@@ -4,6 +4,16 @@ All notable changes to snowfort-audit are documented here.
 
 ---
 
+## [0.4.1] — 2026-04-10
+
+### Documentation
+
+- `docs/RULES_CATALOG.md` regenerated: 83 → 116 rules. Added all 32 rules shipped in v0.4.0 that were missing from the catalog (COST_017–033, GOV_005–009, OPS_013–014, REL_009–010, SEC_018–023). Updated all section counts.
+- `docs/SMOKE_TEST.md` created: documents smoke-covered vs. unit-only test tiers for all 116 rules. Clarifies that Cortex cost rules (COST_016–033) are unit-only (seeding real usage costs real credits) and OPS_014 is opt-in unit-only.
+- No code or rule changes from v0.4.0.
+
+---
+
 ## [0.4.0] — 2026-04-09
 
 ### Summary

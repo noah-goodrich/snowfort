@@ -1,8 +1,8 @@
 # Snowfort-Audit Rule Catalog (WAF-Aligned)
 
-This catalog lists all 83 built-in rules. Generated from `get_all_rules()` on 2026-04-07.
+This catalog lists all 116 built-in rules. Generated from `get_all_rules()` on 2026-04-10.
 
-## Cost Optimization (COST) — 17 rules
+## Cost Optimization (COST) — 34 rules
 
 | Rule ID | Name | Description | Severity | Mode |
 |---------|------|-------------|----------|------|
@@ -23,11 +23,31 @@ This catalog lists all 83 built-in rules. Generated from `get_all_rules()` on 20
 | COST_014 | Automatic Clustering Cost/Benefit | High clustering credits; review vs pruning benefit. | MEDIUM | Online |
 | COST_015 | Search Optimization Cost/Benefit | High SOS credits; review index usage. | MEDIUM | Online |
 | COST_016 | Data Transfer Monitoring | High cross-region/egress transfer in 7 days. | MEDIUM | Online |
+| COST_017 | Cortex AI Model Allowlist | Cortex AI function calls using non-allowlisted models. | MEDIUM | Online |
+| COST_018 | Cortex AI Query Tag Coverage | Cortex AI rows with no QUERY_TAG (>20% untagged). | MEDIUM | Online |
+| COST_019 | Cortex AI Per-User Spend | Top users by credits; outlier >3x median. | MEDIUM | Online |
+| COST_020 | Cortex AI SQL Adoption | Continued use of deprecated CORTEX_FUNCTIONS_USAGE_HISTORY view. | LOW | Online |
+| COST_021 | Cortex Code CLI Per-User Limit | Users approaching or exceeding CLI daily credit limit. | MEDIUM | Online |
+| COST_022 | Cortex Code CLI Zombie Usage | Users with CORTEX_USER role but zero CLI usage for 30 days. | LOW | Online |
+| COST_023 | Cortex Code CLI Credit Spike | Day-over-day >5x credit increase. | HIGH | Online |
+| COST_024 | Cortex Agent Budget Enforcement | Agents without a Snowflake Budget attached. | HIGH | Online |
+| COST_025 | Cortex Agent Spend Cap | Per-agent credits exceeding configured threshold. | HIGH | Online |
+| COST_026 | Cortex Agent Tag Coverage | Agents with null AGENT_TAGS (no cost-center attribution). | MEDIUM | Online |
+| COST_027 | Snowflake Intelligence Daily Spend | Intelligence daily spend exceeds threshold. | HIGH | Online |
+| COST_028 | Snowflake Intelligence Governance | Intelligence running without cost-center tag attribution. | MEDIUM | Online |
+| COST_029 | Cortex Search Consumption Breakdown | SERVING/EMBED token split unexpected or cap breach. | MEDIUM | Online |
+| COST_030 | Cortex Search Zombie Service | Zero-serving services still consuming BATCH refresh credits. | MEDIUM | Online |
+| COST_031 | Cortex Analyst Per-User Quota | Users exceeding configured daily analyst request quota. | MEDIUM | Online |
+| COST_032 | Cortex Analyst Without Budget | ENABLE_CORTEX_ANALYST=TRUE with no account budget set. | HIGH | Online |
+| COST_033 | Cortex Document Processing Spend | AI_PARSE_DOCUMENT + AI_EXTRACT aggregate spend exceeds threshold. | MEDIUM | Online |
 
 > **Note:** COST_012 has two implementations (High-Churn Permanent Tables and Isolation Pivot)
 > sharing the same rule ID. Both run during online scans.
+>
+> **Note:** Cortex cost rules (COST_016–033) are unit-tested only — seeding real Cortex usage
+> incurs real credits. See `docs/SMOKE_TEST.md` for the full coverage tier breakdown.
 
-## Security (SEC) — 20 rules
+## Security (SEC) — 26 rules
 
 | Rule ID | Name | Description | Severity | Mode |
 |---------|------|-------------|----------|------|
@@ -52,8 +72,14 @@ This catalog lists all 83 built-in rules. Generated from `get_all_rules()` on 20
 | SEC_015 | SSO Coverage | Non-SSO users in SSO-enabled account. | MEDIUM | Online |
 | SEC_016 | MFA Account Enforcement | Account-level REQUIRE_MFA_FOR_ALL_USERS not enabled. | CRITICAL | Online |
 | SEC_017 | CIS Benchmark Scanner | Trust Center CIS scanner package not enabled. | MEDIUM | Online |
+| SEC_018 | Programmatic Access Token Governance | PATs with no expiry or expiry >90 days. | HIGH | Online |
+| SEC_019 | AI_REDACT Policy Coverage | Sensitive-tagged columns without AI_REDACT masking policy. | MEDIUM | Online |
+| SEC_020 | Authorization Policy Coverage | Warehouses lacking an authorization policy. | MEDIUM | Online |
+| SEC_021 | Trust Center Findings | Unresolved HIGH/CRITICAL Trust Center findings. | HIGH | Online |
+| SEC_022 | PrivateLink Enforcement | PrivateLink configured but public endpoint not restricted. | MEDIUM | Online |
+| SEC_023 | Snowpark Container Services Security | SPCS services without a documentation comment. | MEDIUM | Online |
 
-## Reliability (REL) — 8 rules
+## Reliability (REL) — 10 rules
 
 | Rule ID | Name | Description | Severity | Mode |
 |---------|------|-------------|----------|------|
@@ -65,6 +91,8 @@ This catalog lists all 83 built-in rules. Generated from `get_all_rules()` on 20
 | REL_006 | Adequate Time Travel Retention | Production tables with only 1-day retention. | LOW | Online |
 | REL_007 | Failed Task Detection | Recurring task failures in last 7 days. | MEDIUM | Online |
 | REL_008 | Pipeline Object Replication | Production DBs with pipes not in replication group. | MEDIUM | Online |
+| REL_009 | Dynamic Table Refresh Lag | Actual refresh lag >1.5x target lag. | MEDIUM | Online |
+| REL_010 | Dynamic Table Failure Detection | Dynamic Tables in FAILED state in last 24 hours. | HIGH | Online |
 
 ## Performance (PERF) — 15 rules
 
@@ -86,7 +114,7 @@ This catalog lists all 83 built-in rules. Generated from `get_all_rules()` on 20
 | PERF_013 | Query Latency SLO | P99 latency exceeds threshold. | MEDIUM | Online |
 | SQL_001 | No SELECT * | SELECT * in views/SQL files. | MEDIUM | Offline/Online |
 
-## Operations (OPS) — 12 rules
+## Operations (OPS) — 14 rules
 
 | Rule ID | Name | Description | Severity | Mode |
 |---------|------|-------------|----------|------|
@@ -102,8 +130,10 @@ This catalog lists all 83 built-in rules. Generated from `get_all_rules()` on 20
 | OPS_010 | Event Table Configuration | No customer-owned event table. | LOW | Online |
 | OPS_011 | Data Metric Functions Coverage | No DMF references for data quality monitoring. | LOW | Online |
 | OPS_012 | Alert Execution Reliability | Alert success rate below threshold over last 7 days. | MEDIUM | Online |
+| OPS_013 | Developer Sandbox Sprawl | Dropped databases with Time Travel retention >7 days. | LOW | Online |
+| OPS_014 | Permifrost Drift | Actual grants diverge from Permifrost YAML spec (opt-in via `--permifrost-spec`). | MEDIUM | Online |
 
-## Governance (GOV) — 4 rules
+## Governance (GOV) — 9 rules
 
 | Rule ID | Name | Description | Severity | Mode |
 |---------|------|-------------|----------|------|
@@ -111,6 +141,11 @@ This catalog lists all 83 built-in rules. Generated from `get_all_rules()` on 20
 | GOV_002 | Documentation Coverage | Production objects missing comments. | LOW | Online |
 | GOV_003 | Account Budget Enforcement | No active Snowflake Budgets. | CRITICAL | Online |
 | GOV_004 | Sensitive Data Classification | PII-like columns without classification tag. | MEDIUM | Online |
+| GOV_005 | Masking Policy Coverage (Extended) | AI_CLASSIFY-tagged sensitive columns without masking policy. | MEDIUM | Online |
+| GOV_006 | Inbound Share Risk | Inbound shares without owner tag or documentation. | MEDIUM | Online |
+| GOV_007 | Outbound Share Risk | Outbound shares without expiration or per-consumer grants. | MEDIUM | Online |
+| GOV_008 | Cross-Region Inference | CORTEX_ENABLED_CROSS_REGION enabled with data-residency-tagged objects present. | HIGH | Online |
+| GOV_009 | Iceberg Table Governance | Iceberg tables missing catalog integration or retention policy. | MEDIUM | Online |
 
 ## Static Analysis (STAT) — 7 rules
 
