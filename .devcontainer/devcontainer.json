@@ -8,7 +8,7 @@
     "snowfort-audit-app"
   ],
   "initializeCommand": "bash -c 'touch ${localWorkspaceFolder}/.devcontainer/.secrets.env'",
-  "postCreateCommand": "mkdir -p /home/dev/.config /home/dev/.snowflake && chmod 700 /home/dev/.ssh && chmod 600 /home/dev/.ssh/* && chmod 644 /home/dev/.ssh/*.pub 2>/dev/null; cd /development && pre-commit install; cd /development/packages/snowfort-audit && pip install -e '.[dev]' || true",
+  "postCreateCommand": "mkdir -p /home/dev/.config /home/dev/.snowflake; cd /development && pre-commit install; cd /development/packages/snowfort-audit && pip install -e '.[dev]' || true",
   "features": {},
   "remoteEnv": {},
   "containerEnv": {
