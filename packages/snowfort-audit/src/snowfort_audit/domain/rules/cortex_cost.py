@@ -193,8 +193,10 @@ class CortexAIFunctionCreditBudgetCheck(_CortexRule):
                     credit_by_day[usage_time] += credits
                 else:
                     credit_by_day[usage_time] = credits
-        except Exception:
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
         violations = []
         for day, daily_credits in credit_by_day.items():
             if daily_credits > thresholds.daily_credit_hard_limit:
@@ -691,8 +693,9 @@ class CortexAgentBudgetEnforcementCheck(_CortexRule):
                 name = str(brow[1]).upper() if len(brow) > 1 and brow[1] else ""
                 if name.startswith("AGENT_"):
                     budgeted_agents.add(name[6:])  # strip AGENT_ prefix
-        except Exception:
-            pass  # SHOW BUDGETS may not be available
+        except Exception as exc:
+            if not is_allowlisted_sf_error(exc):
+                raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
         violations = []
         for agent in sorted(agent_names):
             if agent.upper() not in {b.upper() for b in budgeted_agents}:

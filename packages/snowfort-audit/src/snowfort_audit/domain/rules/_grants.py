@@ -29,6 +29,9 @@ GTR_GRANTED_TO = 5
 GTU_GRANTEE_NAME = 0
 GTU_ROLE = 1
 
+# Admin-equivalent roles for RBAC blast-radius computation.
+ADMIN_ROLES = frozenset({"ACCOUNTADMIN", "SECURITYADMIN", "SYSADMIN"})
+
 
 def gtr_fetcher(cursor: SnowflakeCursorProtocol):
     """Return a get_or_fetch-compatible fetcher for GRANTS_TO_ROLES.
@@ -82,8 +85,6 @@ def admin_role_user_counts(
         Mapping from "ACCOUNTADMIN"/"SECURITYADMIN"/"SYSADMIN" to the set of
         users who can reach that admin role via any path.
     """
-    _ADMIN_ROLES = frozenset({"ACCOUNTADMIN", "SECURITYADMIN", "SYSADMIN"})
-
     # Build role-containment graph: role -> roles it inherits.
     # When GRANTED_ON='ROLE', NAME was granted TO GRANTEE_NAME, meaning
     # GRANTEE_NAME "contains"/inherits NAME.
@@ -101,7 +102,7 @@ def admin_role_user_counts(
         role = str(row[GTU_ROLE]).upper()
         user_direct_roles.setdefault(user, set()).add(role)
 
-    result: dict[str, set[str]] = {r: set() for r in _ADMIN_ROLES}
+    result: dict[str, set[str]] = {r: set() for r in ADMIN_ROLES}
 
     for user, start_roles in user_direct_roles.items():
         # BFS from this user's direct roles through the role-inheritance graph.
@@ -112,10 +113,24 @@ def admin_role_user_counts(
             if role in visited:
                 continue
             visited.add(role)
-            if role in _ADMIN_ROLES:
+            if role in ADMIN_ROLES:
                 result[role].add(user)
             for inherited in role_contains.get(role, []):
                 if inherited not in visited:
                     queue.append(inherited)
 
     return result
+
+
+def admin_users_from_context(cursor: "SnowflakeCursorProtocol", scan_context) -> set[str]:
+    """Resolve the union of users with admin-equivalent roles via scan_context grants cache.
+
+    Returns an empty set when scan_context is None (callers needing a SHOW-GRANTS
+    fallback should handle that themselves).
+    """
+    if scan_context is None:
+        return set()
+    gtr = scan_context.get_or_fetch("GRANTS_TO_ROLES", GRANTS_CACHE_WINDOW, gtr_fetcher(cursor))
+    gtu = scan_context.get_or_fetch("GRANTS_TO_USERS", GRANTS_CACHE_WINDOW, gtu_fetcher(cursor))
+    role_users = admin_role_user_counts(gtr, gtu)
+    return set().union(*(role_users[r] for r in ADMIN_ROLES))

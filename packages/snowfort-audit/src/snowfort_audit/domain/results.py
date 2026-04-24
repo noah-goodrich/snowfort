@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 
 from snowfort_audit.domain.rule_definitions import (
     PILLAR_DISPLAY_ORDER,
+    FindingCategory,
     Severity,
     Violation,
     pillar_from_rule_id,
@@ -54,14 +55,18 @@ _SEV_INDEX = {Severity.CRITICAL: 0, Severity.HIGH: 1, Severity.MEDIUM: 2, Severi
 
 def _count_violations(
     violations: list[Violation],
-) -> tuple[tuple[int, int, int, int, int], dict[str, list[int]]]:
-    """Single pass over violations returning (totals, pillar_counts).
+) -> tuple[tuple[int, int, int, int, int], dict[str, list[int]], tuple[int, int, int], dict[str, list[int]]]:
+    """Single pass over violations returning (totals, pillar_counts, category_counts, actionable_pillar_counts).
 
     totals = (total, critical, high, medium, low)
-    pillar_counts = {pillar: [critical, high, medium, low]}
+    pillar_counts = {pillar: [critical, high, medium, low]}  (all violations)
+    category_counts = (actionable, expected, informational)
+    actionable_pillar_counts = {pillar: [critical, high, medium, low]}  (ACTIONABLE only)
     """
     total = critical = high = medium = low = 0
+    actionable = expected = informational = 0
     pillar_counts: dict[str, list[int]] = {}
+    actionable_pillar_counts: dict[str, list[int]] = {}
     for v in violations:
         total += 1
         idx = _SEV_INDEX.get(v.severity, 3)
@@ -79,7 +84,24 @@ def _count_violations(
             counts = [0, 0, 0, 0]
             pillar_counts[p] = counts
         counts[idx] += 1
-    return (total, critical, high, medium, low), pillar_counts
+
+        if v.category == FindingCategory.ACTIONABLE:
+            actionable += 1
+            act_counts = actionable_pillar_counts.get(p)
+            if act_counts is None:
+                act_counts = [0, 0, 0, 0]
+                actionable_pillar_counts[p] = act_counts
+            act_counts[idx] += 1
+        elif v.category == FindingCategory.EXPECTED:
+            expected += 1
+        else:
+            informational += 1
+    return (
+        (total, critical, high, medium, low),
+        pillar_counts,
+        (actionable, expected, informational),
+        actionable_pillar_counts,
+    )
 
 
 def _compute_pillar_scores(
@@ -109,17 +131,31 @@ class AuditScorecard:
     low_count: int = 0
     pillar_scores: dict[str, float] = field(default_factory=dict)
     pillar_grades: dict[str, str] = field(default_factory=dict)
+    adjusted_score: int = 100
+    actionable_count: int = 0
+    expected_count: int = 0
+    informational_count: int = 0
 
     @property
     def grade(self) -> str:
         """Letter grade (A-F) derived from overall compliance score."""
         return _score_to_grade(float(self.compliance_score))
 
+    @property
+    def adjusted_grade(self) -> str:
+        """Letter grade (A-F) derived from adjusted (ACTIONABLE-only) score."""
+        return _score_to_grade(float(self.adjusted_score))
+
     @classmethod
     def from_violations(cls, violations: list[Violation]) -> "AuditScorecard":
-        totals, pillar_counts = _count_violations(violations)
+        totals, pillar_counts, category_counts, actionable_pillar_counts = _count_violations(violations)
         pillar_scores, pillar_grades_dict = _compute_pillar_scores(pillar_counts)
         overall = round(statistics.mean(pillar_scores.values())) if pillar_scores else 100
+
+        # Adjusted score: same formula but only ACTIONABLE violations
+        adj_pillar_scores, _ = _compute_pillar_scores(actionable_pillar_counts)
+        adjusted = round(statistics.mean(adj_pillar_scores.values())) if adj_pillar_scores else 100
+
         return cls(
             compliance_score=overall,
             total_violations=totals[0],
@@ -129,6 +165,10 @@ class AuditScorecard:
             low_count=totals[4],
             pillar_scores=pillar_scores,
             pillar_grades=pillar_grades_dict,
+            adjusted_score=adjusted,
+            actionable_count=category_counts[0],
+            expected_count=category_counts[1],
+            informational_count=category_counts[2],
         )
 
 

@@ -72,9 +72,11 @@ def test_network_open_ip():
 
 
 def test_network_exc():
+    # AC-1: non-allowlisted errors raise RuleExecutionError (no silent swallow).
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert NetworkPerimeterCheck()._check_account(c) == []
+    with pytest.raises(RuleExecutionError):
+        NetworkPerimeterCheck()._check_account(c)
 
 
 def test_network_perimeter_sso_downgrade():
@@ -196,12 +198,141 @@ def test_zombie_user_ok():
     assert ZombieUserCheck().check_online(c) == []
 
 
+# ── AC-2: SEC_007 auth-type bucketing when sso_enforced=True ──────────────────
+
+
+def _zombie_scan_context(user_row, admin_users=frozenset()):
+    """Build a ScanContext with sso_enforced=True and a single user row."""
+    from snowfort_audit.domain.scan_context import ScanContext
+
+    ctx = ScanContext()
+    object.__setattr__(ctx, "sso_enforced", True)
+    object.__setattr__(ctx, "users", (user_row,))
+    object.__setattr__(
+        ctx,
+        "users_cols",
+        {
+            "name": 0,
+            "last_success_login": 1,
+            "created_on": 2,
+            "has_password": 3,
+            "has_rsa_public_key": 4,
+            "ext_authn_uid": 5,
+            "type": 6,
+        },
+    )
+    object.__setattr__(ctx, "_admin_users_precomputed", frozenset(admin_users))
+    return ctx
+
+
+def test_zombie_password_admin_sso_critical(monkeypatch):
+    """AC-2: zombie with password + admin role → CRITICAL + ACTIONABLE when SSO enforced."""
+    from snowfort_audit.domain.rule_definitions import FindingCategory, Severity
+
+    monkeypatch.setattr(ZombieUserCheck, "_admin_users", lambda self, cur, sc: {"ADM"})
+    user = (
+        "ADM",
+        datetime.now(timezone.utc) - timedelta(days=120),
+        datetime.now(timezone.utc) - timedelta(days=200),
+        "true",  # has_password
+        "false",  # has_rsa_public_key
+        "",  # ext_authn_uid
+        "PERSON",
+    )
+    ctx = _zombie_scan_context(user, admin_users={"ADM"})
+    v = ZombieUserCheck().check_online(MagicMock(), scan_context=ctx)
+    assert len(v) == 1
+    assert v[0].severity == Severity.CRITICAL
+    assert v[0].category == FindingCategory.ACTIONABLE
+
+
+def test_zombie_password_nonadmin_sso_high(monkeypatch):
+    """AC-2: zombie with password but no admin role → HIGH + ACTIONABLE when SSO enforced."""
+    from snowfort_audit.domain.rule_definitions import FindingCategory, Severity
+
+    monkeypatch.setattr(ZombieUserCheck, "_admin_users", lambda self, cur, sc: set())
+    user = (
+        "DEV",
+        datetime.now(timezone.utc) - timedelta(days=120),
+        datetime.now(timezone.utc) - timedelta(days=200),
+        "true",
+        "false",
+        "",
+        "PERSON",
+    )
+    ctx = _zombie_scan_context(user)
+    v = ZombieUserCheck().check_online(MagicMock(), scan_context=ctx)
+    assert len(v) == 1
+    assert v[0].severity == Severity.HIGH
+    assert v[0].category == FindingCategory.ACTIONABLE
+
+
+def test_zombie_sso_only_informational(monkeypatch):
+    """AC-2: zombie with SSO only (no password, no key) → LOW + INFORMATIONAL when SSO enforced."""
+    from snowfort_audit.domain.rule_definitions import FindingCategory, Severity
+
+    monkeypatch.setattr(ZombieUserCheck, "_admin_users", lambda self, cur, sc: set())
+    user = (
+        "HUMAN",
+        datetime.now(timezone.utc) - timedelta(days=120),
+        datetime.now(timezone.utc) - timedelta(days=200),
+        "false",
+        "false",
+        "sso-uid-123",
+        "PERSON",
+    )
+    ctx = _zombie_scan_context(user)
+    v = ZombieUserCheck().check_online(MagicMock(), scan_context=ctx)
+    assert len(v) == 1
+    assert v[0].severity == Severity.LOW
+    assert v[0].category == FindingCategory.INFORMATIONAL
+
+
+def test_zombie_keypair_only_informational(monkeypatch):
+    """AC-2: zombie with key-pair only → LOW + INFORMATIONAL when SSO enforced."""
+    from snowfort_audit.domain.rule_definitions import FindingCategory, Severity
+
+    monkeypatch.setattr(ZombieUserCheck, "_admin_users", lambda self, cur, sc: set())
+    user = (
+        "SVC",
+        datetime.now(timezone.utc) - timedelta(days=120),
+        datetime.now(timezone.utc) - timedelta(days=200),
+        "false",
+        "true",
+        "",
+        "SERVICE",
+    )
+    ctx = _zombie_scan_context(user)
+    v = ZombieUserCheck().check_online(MagicMock(), scan_context=ctx)
+    assert len(v) == 1
+    assert v[0].severity == Severity.LOW
+    assert v[0].category == FindingCategory.INFORMATIONAL
+
+
 def test_zombie_role():
     c = MagicMock()
     # SHOW ROLES -> CUSTOM; GRANTS_TO_ROLES(granted_on='ROLE') -> []; GRANTS_TO_USERS -> [];
     # GRANTS_TO_ROLES(grantee) -> [] => CUSTOM is Orphan + Empty = 2 violations
     c.fetchall.side_effect = [[("cr", "CUSTOM")], [], [], []]
     assert len(ZombieRoleCheck().check_online(c)) == 2
+
+
+def test_zombie_role_sql_parses():
+    """AC-2: SEC_008 SQL queries must parse cleanly in Snowflake dialect (regression)."""
+    import sqlfluff
+
+    sec_008_queries = [
+        (
+            "SELECT DISTINCT NAME FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_ROLES "
+            "WHERE GRANTED_ON = 'ROLE' AND DELETED_ON IS NULL"
+        ),
+        "SELECT DISTINCT ROLE FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_USERS WHERE DELETED_ON IS NULL",
+        "SELECT DISTINCT GRANTEE_NAME FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_ROLES WHERE DELETED_ON IS NULL",
+    ]
+    for sql in sec_008_queries:
+        results = sqlfluff.lint(sql, dialect="snowflake")
+        parse_errors = [r for r in results if r.get("code", "").startswith("PRS")]
+        assert not parse_errors, f"Parse error in SEC_008 SQL:\n{sql}\n{parse_errors}"
 
 
 def test_zombie_role_exc():
@@ -298,6 +429,111 @@ def test_mfa_acct_exc():
     c.execute.side_effect = RuntimeError()
     with pytest.raises(RuleExecutionError):
         MFAAccountEnforcementCheck().check_online(c)
+
+
+# ── AC-2: SEC_002 / SEC_011 / SEC_016 SSO-aware severity downgrade ────────────
+
+
+def _user_row(name="U", has_mfa="false", has_pwd="true", ext_uid="", utype="PERSON"):
+    return (name, has_pwd, has_mfa, "false", "false", ext_uid, utype)
+
+
+def _user_desc_for_federated():
+    return [
+        ("name",),
+        ("has_password",),
+        ("has_mfa",),
+        ("ext_authn_duo",),
+        ("has_rsa_public_key",),
+        ("ext_authn_uid",),
+        ("type",),
+    ]
+
+
+def test_federated_sso_downgrade():
+    """AC-2: SEC_011 severity is LOW + EXPECTED when sso_enforced=True, MEDIUM otherwise."""
+    from snowfort_audit.domain.rule_definitions import FindingCategory, Severity
+    from snowfort_audit.domain.scan_context import ScanContext
+
+    def make_cursor():
+        c = MagicMock()
+        c.description = _user_desc_for_federated()
+        c.fetchall.return_value = [_user_row()]
+        return c
+
+    ctx_sso = ScanContext()
+    object.__setattr__(ctx_sso, "sso_enforced", True)
+    ctx_no_sso = ScanContext()
+    object.__setattr__(ctx_no_sso, "sso_enforced", False)
+
+    v_sso = FederatedAuthenticationCheck().check_online(make_cursor(), scan_context=ctx_sso)
+    v_no_sso = FederatedAuthenticationCheck().check_online(make_cursor(), scan_context=ctx_no_sso)
+
+    assert len(v_sso) == 1
+    assert v_sso[0].severity == Severity.LOW
+    assert v_sso[0].category == FindingCategory.EXPECTED
+    assert len(v_no_sso) == 1
+    assert v_no_sso[0].severity == Severity.MEDIUM
+
+
+def test_mfa_acct_sso_downgrade():
+    """AC-2: SEC_016 severity is LOW + EXPECTED when sso_enforced=True, CRITICAL otherwise."""
+    from snowfort_audit.domain.rule_definitions import FindingCategory, Severity
+    from snowfort_audit.domain.scan_context import ScanContext
+
+    def make_cursor():
+        c = MagicMock()
+        c.fetchone.return_value = ("k", "FALSE")
+        return c
+
+    ctx_sso = ScanContext()
+    object.__setattr__(ctx_sso, "sso_enforced", True)
+    ctx_no_sso = ScanContext()
+    object.__setattr__(ctx_no_sso, "sso_enforced", False)
+
+    v_sso = MFAAccountEnforcementCheck().check_online(make_cursor(), scan_context=ctx_sso)
+    v_no_sso = MFAAccountEnforcementCheck().check_online(make_cursor(), scan_context=ctx_no_sso)
+
+    assert len(v_sso) == 1
+    assert v_sso[0].severity == Severity.LOW
+    assert v_sso[0].category == FindingCategory.EXPECTED
+    assert len(v_no_sso) == 1
+    assert v_no_sso[0].severity == Severity.CRITICAL
+
+
+def test_mfa_per_user_sso_downgrade(monkeypatch):
+    """AC-2: SEC_002 severity is LOW + EXPECTED when sso_enforced=True, CRITICAL otherwise."""
+    from snowfort_audit.domain.rule_definitions import FindingCategory, Severity
+    from snowfort_audit.domain.scan_context import ScanContext
+
+    # Patch admin detection to isolate SSO-downgrade behavior from RBAC resolution.
+    monkeypatch.setattr(MFAEnforcementCheck, "_get_admin_users", lambda self, cur, sc=None: {"ADM"})
+
+    def make_cursor():
+        c = MagicMock()
+        c.description = [
+            ("name",),
+            ("type",),
+            ("has_mfa",),
+            ("ext_authn_duo",),
+            ("mins_to_bypass_mfa",),
+        ]
+        c.fetchall.return_value = [("ADM", "PERSON", "false", "false", None)]
+        return c
+
+    ctx_sso = ScanContext()
+    object.__setattr__(ctx_sso, "sso_enforced", True)
+    ctx_no_sso = ScanContext()
+    object.__setattr__(ctx_no_sso, "sso_enforced", False)
+
+    v_sso = MFAEnforcementCheck().check_online(make_cursor(), scan_context=ctx_sso)
+    v_no_sso = MFAEnforcementCheck().check_online(make_cursor(), scan_context=ctx_no_sso)
+
+    assert len(v_sso) == 1, f"Expected 1 violation, got {v_sso}"
+    assert v_sso[0].severity == Severity.LOW
+    assert v_sso[0].category == FindingCategory.EXPECTED
+    assert len(v_no_sso) == 1
+    assert v_no_sso[0].severity == Severity.CRITICAL
 
 
 def test_cis_found():
@@ -505,3 +741,47 @@ def test_admin_exposure_check_online_scan_context_too_many():
     violations = AdminExposureCheck().check_online(c, scan_context=ctx)
     assert len(violations) == 1
     assert "4" in violations[0].message
+
+
+# ---------------------------------------------------------------------------
+# AC-1: NetworkPerimeterCheck bare handlers must raise RuleExecutionError
+# ---------------------------------------------------------------------------
+
+
+class TestNetworkPerimeterCheckErrorPropagation:
+    """_check_account and _describe_and_check_policy must not silently
+    return [] for non-allowlisted errors."""
+
+    def test_check_account_unexpected_error_raises(self):
+        """Non-SF error in _check_account must raise RuleExecutionError."""
+        rule = NetworkPerimeterCheck()
+        c = MagicMock()
+        c.execute.side_effect = RuntimeError("unexpected DB failure")
+        with pytest.raises(RuleExecutionError):
+            rule._check_account(c)
+
+    def test_check_account_allowlisted_error_returns_empty(self):
+        """Allowlisted SF error (errno 2003) in _check_account → []."""
+        rule = NetworkPerimeterCheck()
+        c = MagicMock()
+        err = Exception("Object not found")
+        err.errno = 2003
+        c.execute.side_effect = err
+        assert rule._check_account(c) == []
+
+    def test_describe_policy_unexpected_error_raises(self):
+        """Non-SF error in _describe_and_check_policy must raise RuleExecutionError."""
+        rule = NetworkPerimeterCheck()
+        c = MagicMock()
+        c.execute.side_effect = RuntimeError("policy describe failed")
+        with pytest.raises(RuleExecutionError):
+            rule._describe_and_check_policy(c, "Account", "MY_POLICY")
+
+    def test_describe_policy_allowlisted_error_returns_empty(self):
+        """Allowlisted SF error in _describe_and_check_policy → []."""
+        rule = NetworkPerimeterCheck()
+        c = MagicMock()
+        err = Exception("Object not found")
+        err.errno = 2003
+        c.execute.side_effect = err
+        assert rule._describe_and_check_policy(c, "Account", "MY_POLICY") == []

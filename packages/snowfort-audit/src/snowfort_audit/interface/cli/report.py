@@ -4,6 +4,7 @@ import json
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from rich.console import Console
 from rich.panel import Panel
@@ -71,44 +72,80 @@ def conventions_for_pillar(pillar: str, conv: SnowfortConventions) -> list[tuple
     return lines
 
 
-def write_audit_cache(project_root: Path, result: AuditResult, target_name: str) -> None:
+def _enrichment_fields(v: Violation, rule: Any | None) -> dict:
+    """Cortex-consumable enrichment fields shared by cache, manifest, and YAML serializers.
+
+    blast_radius is None for Account-level findings (broad applicability, not per-object).
+    """
+    return {
+        "category": v.category.value,
+        "context": (rule.rationale or "") if rule is not None else "",
+        "blast_radius": None if str(v.resource_name).strip().upper() == "ACCOUNT" else 1,
+        "quick_win": bool(v.remediation_key),
+        "remediation_key": v.remediation_key,
+    }
+
+
+def _violation_enriched(v: Violation, rule: Any | None) -> dict:
+    """Full violation dict for JSON cache and manifest output."""
+    d = asdict(v)
+    d["severity"] = v.severity.value
+    d.update(_enrichment_fields(v, rule))
+    return d
+
+
+def write_audit_cache(
+    project_root: Path,
+    result: AuditResult,
+    target_name: str,
+    rules: list[Any] | None = None,
+) -> None:
     cache_dir = project_root / ".snowfort"
     cache_dir.mkdir(parents=True, exist_ok=True)
     cache_file = cache_dir / "audit_results.json"
 
-    def _violation_to_dict(v: Violation) -> dict:
-        d = asdict(v)
-        d["severity"] = v.severity.value
-        return d
-
+    rules_by_id = {r.id: r for r in (rules or [])}
+    sc = result.scorecard
     payload = {
         "target_name": target_name,
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "metadata": result.metadata,
         "scorecard": {
-            "compliance_score": result.scorecard.compliance_score,
-            "grade": result.scorecard.grade,
-            "total_violations": result.scorecard.total_violations,
-            "critical_count": result.scorecard.critical_count,
-            "high_count": result.scorecard.high_count,
-            "medium_count": result.scorecard.medium_count,
-            "low_count": result.scorecard.low_count,
-            "pillar_scores": result.scorecard.pillar_scores,
-            "pillar_grades": result.scorecard.pillar_grades,
+            "compliance_score": sc.compliance_score,
+            "grade": sc.grade,
+            "adjusted_score": sc.adjusted_score,
+            "adjusted_grade": sc.adjusted_grade,
+            "actionable_count": sc.actionable_count,
+            "expected_count": sc.expected_count,
+            "informational_count": sc.informational_count,
+            "total_violations": sc.total_violations,
+            "critical_count": sc.critical_count,
+            "high_count": sc.high_count,
+            "medium_count": sc.medium_count,
+            "low_count": sc.low_count,
+            "pillar_scores": sc.pillar_scores,
+            "pillar_grades": sc.pillar_grades,
         },
-        "violations": [_violation_to_dict(v) for v in result.violations],
+        "violations": [_violation_enriched(v, rules_by_id.get(v.rule_id)) for v in result.violations],
     }
     with open(cache_file, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, default=str)
 
 
-def _render_manifest_json(violations: list, telemetry, audit_metadata: dict | None) -> None:
+def _render_manifest_json(
+    violations: list,
+    telemetry,
+    audit_metadata: dict | None,
+    rules: list[Any] | None = None,
+) -> None:
     telemetry.step("Generating JSON Manifest...")
     meta = audit_metadata or {}
+    rules_by_id = {r.id: r for r in (rules or [])}
+    enriched = [_violation_enriched(v, rules_by_id.get(v.rule_id)) for v in violations]
     if meta:
-        print(json.dumps({"violations": [asdict(v) for v in violations], "metadata": meta}, indent=2, default=str))
+        print(json.dumps({"violations": enriched, "metadata": meta}, indent=2, default=str))
     else:
-        print(json.dumps([asdict(v) for v in violations], indent=2, default=str))
+        print(json.dumps(enriched, indent=2, default=str))
 
 
 def _render_scorecard_flat(console: Console, result: AuditResult, target_name: str) -> None:
@@ -184,7 +221,7 @@ def report_findings(
     errored_count: int = 0,
 ) -> None:
     if manifest:
-        _render_manifest_json(violations, telemetry, audit_metadata)
+        _render_manifest_json(violations, telemetry, audit_metadata, rules=_rules)
         return
     console = Console()
     result = result or AuditResult.from_violations(violations, metadata=audit_metadata or {})
@@ -330,7 +367,7 @@ def report_findings_guided(
     errored_count: int = 0,
 ) -> None:
     if manifest:
-        _render_manifest_json(violations, telemetry, audit_metadata)
+        _render_manifest_json(violations, telemetry, audit_metadata, rules=rules)
         return
     console = Console()
     result = result or AuditResult.from_violations(violations, metadata=audit_metadata or {})
@@ -446,12 +483,14 @@ def build_yaml_report(
                 "severity": v.severity.value,
                 "resource": v.resource_name,
                 "message": v.message,
+                **_enrichment_fields(v, r),
             }
         )
     try:
         account_cfg = load_account_config_fn(project_root) if load_account_config_fn else {}
     except Exception:
         account_cfg = {}
+    sc = result.scorecard
     return {
         "snowfort_audit_report": {
             "version": "0.1.0",
@@ -460,14 +499,19 @@ def build_yaml_report(
             "account_topology": account_cfg.get("account_topology", ACCOUNT_TOPOLOGY_MULTI_ENV),
             "environments": account_cfg.get("environments", DEFAULT_ENVIRONMENTS),
             "summary": {
-                "score": result.scorecard.compliance_score,
-                "grade": result.scorecard.grade,
-                "total_violations": result.scorecard.total_violations,
+                "score": sc.compliance_score,
+                "grade": sc.grade,
+                "adjusted_score": sc.adjusted_score,
+                "adjusted_grade": sc.adjusted_grade,
+                "actionable_count": sc.actionable_count,
+                "expected_count": sc.expected_count,
+                "informational_count": sc.informational_count,
+                "total_violations": sc.total_violations,
                 "by_severity": {
-                    "CRITICAL": result.scorecard.critical_count,
-                    "HIGH": result.scorecard.high_count,
-                    "MEDIUM": result.scorecard.medium_count,
-                    "LOW": result.scorecard.low_count,
+                    "CRITICAL": sc.critical_count,
+                    "HIGH": sc.high_count,
+                    "MEDIUM": sc.medium_count,
+                    "LOW": sc.low_count,
                 },
             },
             "findings": findings,

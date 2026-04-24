@@ -6,7 +6,7 @@ from typing import Any
 
 from snowfort_audit.domain.protocols import AISynthesizerProtocol
 from snowfort_audit.domain.results import CortexSummary
-from snowfort_audit.domain.rule_definitions import Violation
+from snowfort_audit.domain.rule_definitions import FindingCategory, Violation
 from snowfort_audit.infrastructure.database_errors import SnowflakeConnectorError
 
 logger = logging.getLogger(__name__)
@@ -22,9 +22,23 @@ _STRUCTURED_PROMPT = (
     "QUICK_WINS:\n"
     "- <quick win 1>\n"
     "- <quick win 2>\n\n"
+    "CONTEXT: {category_breakdown}\n\n"
     "FINDINGS:\n"
     "{findings}"
 )
+
+
+def _category_breakdown(violations: list[Violation]) -> str:
+    counts = {FindingCategory.ACTIONABLE: 0, FindingCategory.EXPECTED: 0, FindingCategory.INFORMATIONAL: 0}
+    for v in violations:
+        counts[v.category] = counts.get(v.category, 0) + 1
+    actionable = counts[FindingCategory.ACTIONABLE]
+    return (
+        f"Of {len(violations)} findings: {actionable} require action, "
+        f"{counts[FindingCategory.EXPECTED]} are expected behavior, "
+        f"{counts[FindingCategory.INFORMATIONAL]} are informational. "
+        f"Focus your analysis on the {actionable} actionable findings."
+    )
 
 
 def _parse_structured_response(text: str) -> CortexSummary:
@@ -71,7 +85,10 @@ class CortexSynthesizer(AISynthesizerProtocol):
             return CortexSummary(tl_dr="No violations found. Account is in good standing.")
 
         serialized = "\n".join([f"- [{v.rule_id}] {v.message}" for v in violations[:50]])
-        prompt = _STRUCTURED_PROMPT.format(findings=serialized)
+        prompt = _STRUCTURED_PROMPT.format(
+            findings=serialized,
+            category_breakdown=_category_breakdown(violations),
+        )
         sanitized_prompt = prompt.replace("'", "''")
         query = f"SELECT SNOWFLAKE.CORTEX.COMPLETE('{self.model}', '{sanitized_prompt}')"
 

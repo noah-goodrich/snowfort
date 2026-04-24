@@ -157,10 +157,10 @@ class SpillingMemoryCheck(Rule):
                 if violation:
                     violations.append(violation)
             return violations
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"SpillingMemoryCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
     def _evaluate_spilling(self, row: Any) -> Violation | None:
         wh_type = row[1] or "STANDARD"

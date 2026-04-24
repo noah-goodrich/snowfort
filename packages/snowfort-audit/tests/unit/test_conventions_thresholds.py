@@ -6,6 +6,7 @@ from snowfort_audit.domain.conventions import (
     MandatoryTaggingThresholds,
     NetworkPerimeterThresholds,
     RuleThresholdConventions,
+    SecurityConventions,
     SnowfortConventions,
 )
 from snowfort_audit.infrastructure.config_loader import load_conventions
@@ -37,6 +38,26 @@ def test_mandatory_tagging_thresholds_defaults():
 def test_network_perimeter_thresholds_defaults():
     n = NetworkPerimeterThresholds()
     assert n.sso_downgrade is False
+
+
+def test_security_conventions_sso_threshold_default():
+    """AC-2: sso_threshold defaults to 0.5 (current hardcoded value in _derive_sso_and_zombies)."""
+    s = SecurityConventions()
+    assert s.sso_threshold == 0.5
+
+
+def test_load_conventions_sso_threshold_override(tmp_path):
+    """AC-2: sso_threshold can be overridden via pyproject.toml."""
+    try:
+        import tomli  # noqa: F401
+    except ImportError:
+        return
+    (tmp_path / "pyproject.toml").write_text(
+        "[tool.snowfort.conventions.security]\nsso_threshold = 0.8\n",
+        encoding="utf-8",
+    )
+    c = load_conventions(tmp_path)
+    assert c.security.sso_threshold == 0.8
 
 
 def test_cortex_thresholds_defaults():

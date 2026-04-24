@@ -757,10 +757,12 @@ class PermifrostDriftCheck(Rule):
             for row in cursor.fetchall():
                 result.setdefault(str(row[0]).upper(), set()).add(str(row[1]).upper())
             return result
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.error(f"OPS_014: failed to query GRANTS_TO_USERS: {e}")
-            return None
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                if self.telemetry:
+                    self.telemetry.error(f"OPS_014: failed to query GRANTS_TO_USERS: {exc}")
+                return None
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
     def check_online(
         self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw

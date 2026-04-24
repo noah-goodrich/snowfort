@@ -40,7 +40,7 @@ def _after_scan_report(
 ) -> bool:
     """Write cache, optional cortex summary, rule-filter warning. Returns True if caller should sys.exit(1)."""
     try:
-        write_audit_cache(Path(path).resolve(), result, target_name)
+        write_audit_cache(Path(path).resolve(), result, target_name, rules=rules)
     except OSError as e:
         telemetry.debug(f"Could not write audit cache: {e}")
     if rule_filter and not rules:
@@ -52,7 +52,7 @@ def _after_scan_report(
 
             result = dataclasses.replace(result, cortex_summary=cortex_summary)
             try:
-                write_audit_cache(Path(path).resolve(), result, target_name)
+                write_audit_cache(Path(path).resolve(), result, target_name, rules=rules)
             except OSError:
                 pass
     return bool(violations and offline)

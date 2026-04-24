@@ -93,6 +93,19 @@ class FindingStatus(Enum):
     ERRORED = "ERRORED"
 
 
+class FindingCategory(Enum):
+    """Categorizes a violation's actionability for adjusted scoring.
+
+    ACTIONABLE — requires remediation (default for all violations).
+    EXPECTED — known/accepted behavior (e.g., CDC tables, SSO-expected overlap).
+    INFORMATIONAL — FYI only (e.g., service accounts, key-pair-only users).
+    """
+
+    ACTIONABLE = "ACTIONABLE"
+    EXPECTED = "EXPECTED"
+    INFORMATIONAL = "INFORMATIONAL"
+
+
 # Snowflake error numbers that rules may silently swallow (return [] without raising).
 # Only object-not-found (errno 2003) is allowed — views that may legitimately not exist
 # on older Snowflake accounts. All other errors must propagate as RuleExecutionError.
@@ -142,6 +155,7 @@ class Violation:
     pillar: str = ""
     remediation_key: str | None = None
     remediation_instruction: str | None = None
+    category: FindingCategory = FindingCategory.ACTIONABLE
 
 
 class Rule:
@@ -174,6 +188,7 @@ class Rule:
         message: str,
         severity: Severity | None = None,
         remediation_instruction: str | None = None,
+        category: FindingCategory = FindingCategory.ACTIONABLE,
     ) -> Violation:
         """Helper to create a Violation with the rule's metadata."""
         return Violation(
@@ -184,6 +199,7 @@ class Rule:
             pillar=self.pillar,
             remediation_key=self.remediation_key,
             remediation_instruction=remediation_instruction or self.remediation or None,
+            category=category,
         )
 
     def check(self, _resource: dict, _resource_name: str) -> list[Violation]:

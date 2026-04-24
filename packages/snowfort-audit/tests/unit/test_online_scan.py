@@ -8,6 +8,7 @@ from snowfort_audit.domain.rule_definitions import Rule, Severity, Violation
 from snowfort_audit.use_cases.online_scan import (
     OnlineScanUseCase,
     _check_online_uses_resource_name,
+    _derive_sso_and_zombies,
     _is_system_or_tool_violation,
 )
 
@@ -57,6 +58,47 @@ class _ViewRule(Rule):
 def test_check_online_uses_resource_name_true():
     r = _ViewRule("V1", "ViewRule", Severity.LOW)
     assert _check_online_uses_resource_name(r) is True
+
+
+# ── AC-2: _derive_sso_and_zombies accepts configurable threshold ──────────────
+
+_USER_COLS = {
+    "name": 0,
+    "type": 1,
+    "ext_authn_uid": 2,
+    "last_success_login": 3,
+    "created_on": 4,
+    "has_password": 5,
+    "has_rsa_public_key": 6,
+}
+
+
+def _user(name: str, utype: str = "", sso_uid: str = "") -> tuple:
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    return (name, utype, sso_uid, now, now, True, False)
+
+
+def test_derive_sso_default_threshold_half_sso():
+    """5 of 10 humans have SSO → exactly at default 0.5 threshold → enforced."""
+    users = tuple(_user(f"U{i}", "", "uid" if i < 5 else "") for i in range(10))
+    sso, _ = _derive_sso_and_zombies(users, _USER_COLS)
+    assert sso is True
+
+
+def test_derive_sso_custom_threshold_above():
+    """5 of 10 humans have SSO, threshold 0.8 → NOT enforced."""
+    users = tuple(_user(f"U{i}", "", "uid" if i < 5 else "") for i in range(10))
+    sso, _ = _derive_sso_and_zombies(users, _USER_COLS, sso_threshold=0.8)
+    assert sso is False
+
+
+def test_derive_sso_custom_threshold_met():
+    """8 of 10 humans have SSO, threshold 0.8 → enforced."""
+    users = tuple(_user(f"U{i}", "", "uid" if i < 8 else "") for i in range(10))
+    sso, _ = _derive_sso_and_zombies(users, _USER_COLS, sso_threshold=0.8)
+    assert sso is True
 
 
 def test_online_scan_sequential_no_views():

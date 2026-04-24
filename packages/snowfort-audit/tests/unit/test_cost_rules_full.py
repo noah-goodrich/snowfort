@@ -198,6 +198,69 @@ def test_high_churn_exclusions():
     assert violations[0].resource_name == "DB.SCH.REAL_TABLE"
 
 
+# ── AC-3: COST_012 CDC schema pattern → EXPECTED category + transient remediation ──
+
+
+def test_high_churn_thresholds_cdc_default():
+    """AC-3: HighChurnThresholds defaults cdc_schema_pattern to a broad CDC-tooling regex."""
+    from snowfort_audit.domain.conventions import HighChurnThresholds
+
+    h = HighChurnThresholds()
+    assert h.cdc_schema_pattern  # non-empty default
+    # Spot-check: should match typical CDC tooling schema names (case-insensitive)
+    import re as _re
+
+    pat = _re.compile(h.cdc_schema_pattern)
+    for schema in ("STAGING", "staging", "RAW", "CDC", "FIVETRAN", "AIRBYTE", "STITCH", "HEVO"):
+        assert pat.search(schema), f"Default pattern should match {schema!r}"
+
+
+def test_high_churn_cdc_schema_expected_category():
+    """AC-3: table in a CDC-pattern schema → category=EXPECTED + transient remediation."""
+    from snowfort_audit.domain.rule_definitions import FindingCategory
+
+    c = MagicMock()
+    c.fetchall.return_value = [("RAW_CDC.PUBLIC.CUSTOMERS", 100, 500)]
+    rule = HighChurnPermanentTableCheck()
+    violations = rule.check_online(c)
+    assert len(violations) == 1
+    assert violations[0].category == FindingCategory.EXPECTED
+    assert "transient" in (violations[0].remediation_instruction or "").lower()
+
+
+def test_high_churn_non_cdc_actionable():
+    """AC-3: table not matching CDC pattern → category=ACTIONABLE + default remediation."""
+    from snowfort_audit.domain.rule_definitions import FindingCategory
+
+    c = MagicMock()
+    c.fetchall.return_value = [("ANALYTICS.PUBLIC.REVENUE", 100, 500)]
+    rule = HighChurnPermanentTableCheck()
+    violations = rule.check_online(c)
+    assert len(violations) == 1
+    assert violations[0].category == FindingCategory.ACTIONABLE
+
+
+def test_high_churn_cdc_schema_custom_pattern():
+    """AC-3: custom cdc_schema_pattern from conventions overrides default."""
+    from snowfort_audit.domain.conventions import HighChurnThresholds, RuleThresholdConventions, SnowfortConventions
+    from snowfort_audit.domain.rule_definitions import FindingCategory
+
+    conv = SnowfortConventions(
+        thresholds=RuleThresholdConventions(high_churn=HighChurnThresholds(cdc_schema_pattern=r"(?i)ingest"))
+    )
+    c = MagicMock()
+    c.fetchall.return_value = [
+        ("DB.INGEST.FOO", 100, 500),
+        ("DB.RAW.BAR", 100, 500),  # no longer matches under custom pattern
+    ]
+    rule = HighChurnPermanentTableCheck(conventions=conv)
+    violations = rule.check_online(c)
+    assert len(violations) == 2
+    cats = {v.resource_name: v.category for v in violations}
+    assert cats["DB.INGEST.FOO"] == FindingCategory.EXPECTED
+    assert cats["DB.RAW.BAR"] == FindingCategory.ACTIONABLE
+
+
 def test_per_wh_timeout():
     c = MagicMock()
     c.fetchall.return_value = [("WH1",)]

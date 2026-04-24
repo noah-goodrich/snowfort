@@ -70,6 +70,64 @@ def test_write_audit_cache_with_violations(tmp_path):
     assert data["violations"][0]["severity"] == "CRITICAL"
 
 
+# ── AC-5: manifest/cache/YAML enrichment for Cortex consumption ──────────────
+
+
+def test_write_audit_cache_includes_enrichment(tmp_path):
+    """AC-5: cache violations include category, context, blast_radius, quick_win."""
+    r = Rule("SEC_001", "Admin Exposure", Severity.CRITICAL, rationale="Admins are high-value targets.")
+    v = r.violation("Account", "msg")
+    result = AuditResult.from_violations([v])
+    write_audit_cache(tmp_path, result, "target", rules=[r])
+    data = json.loads((tmp_path / ".snowfort" / "audit_results.json").read_text())
+    violation = data["violations"][0]
+    assert violation["category"] == "ACTIONABLE"
+    assert "admins are high-value" in violation["context"].lower()
+    assert "blast_radius" in violation
+    assert "quick_win" in violation
+    assert "remediation_key" in violation
+
+
+def test_write_audit_cache_includes_adjusted_scorecard(tmp_path):
+    """AC-5: cache scorecard includes adjusted_score/grade/counts."""
+    r = Rule("SEC_001", "X", Severity.CRITICAL)
+    result = AuditResult.from_violations([r.violation("A", "m")])
+    write_audit_cache(tmp_path, result, "t", rules=[r])
+    sc = json.loads((tmp_path / ".snowfort" / "audit_results.json").read_text())["scorecard"]
+    assert "adjusted_score" in sc
+    assert "adjusted_grade" in sc
+    assert "actionable_count" in sc
+    assert "expected_count" in sc
+    assert "informational_count" in sc
+
+
+def test_write_audit_cache_backward_compatible_without_rules(tmp_path):
+    """AC-5/AC-6: cache still works if rules=None; context defaults to empty string."""
+    v = Violation("SEC_001", "Account", "msg", Severity.CRITICAL)
+    result = AuditResult.from_violations([v])
+    write_audit_cache(tmp_path, result, "target")  # no rules kwarg
+    data = json.loads((tmp_path / ".snowfort" / "audit_results.json").read_text())
+    violation = data["violations"][0]
+    assert violation["context"] == ""
+    assert violation["category"] == "ACTIONABLE"
+
+
+def test_build_yaml_report_includes_adjusted_and_enrichment(tmp_path):
+    """AC-5: YAML summary includes adjusted_score/grade; findings include enrichment."""
+    r = Rule("SEC_001", "Admin Exposure", Severity.CRITICAL, rationale="Admins are high-value.")
+    v = r.violation("Account", "msg")
+    result = AuditResult.from_violations([v])
+    y = build_yaml_report(result, [r], tmp_path)
+    summary = y["snowfort_audit_report"]["summary"]
+    assert "adjusted_score" in summary
+    assert "adjusted_grade" in summary
+    finding = y["snowfort_audit_report"]["findings"][0]
+    assert "category" in finding
+    assert "context" in finding and "admins are high-value" in finding["context"].lower()
+    assert "blast_radius" in finding
+    assert "quick_win" in finding
+
+
 # --- _report_findings ---
 
 

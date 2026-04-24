@@ -33,6 +33,8 @@ class SecurityConventions:
     require_network_policy: bool = True
     max_account_admins: int = 3
     min_account_admins: int = 2
+    # Fraction of non-SERVICE users with ext_authn_uid required to flip sso_enforced=True.
+    sso_threshold: float = 0.5
 
 
 @dataclass(frozen=True)
@@ -50,6 +52,9 @@ class HighChurnThresholds:
     rows_per_day_threshold: int = 1_000_000
     # Glob-style patterns for table names to exclude (e.g. CDC staging tables).
     exclude_name_patterns: tuple[str, ...] = ()
+    # Regex: tables whose schema name matches are routed to category=EXPECTED with a
+    # transient-conversion remediation instead of ACTIONABLE. Matches common CDC tooling.
+    cdc_schema_pattern: str = r"(?i)(staging|raw|cdc|fivetran|airbyte|stitch|hevo)"
 
 
 @dataclass(frozen=True)
