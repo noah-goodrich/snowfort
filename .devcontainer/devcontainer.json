@@ -7,7 +7,7 @@
   "runServices": [
     "snowfort-audit-app"
   ],
-  "initializeCommand": "bash -c 'touch ${localWorkspaceFolder}/.devcontainer/.secrets.env'",
+  "initializeCommand": "bash -c 'touch ${localWorkspaceFolder}/.devcontainer/.secrets.env; env_file=\"${localWorkspaceFolder}/.devcontainer/.secrets.env\"; grep -q SNOWFLAKE_CONNECTIONS_BAB08413_TOKEN \"$env_file\" 2>/dev/null || printf \"SNOWFLAKE_PAT=%s\\nSNOWFLAKE_CONNECTIONS_BAB08413_AUTHENTICATOR=PROGRAMMATIC_ACCESS_TOKEN\\nSNOWFLAKE_CONNECTIONS_BAB08413_TOKEN=%s\\n\" \"$SNOWFLAKE_PAT\" \"$SNOWFLAKE_PAT\" > \"$env_file\"'",
   "postCreateCommand": "mkdir -p /home/dev/.config /home/dev/.snowflake; cd /development && pre-commit install; cd /development/packages/snowfort-audit && pip install -e '.[dev]' || true",
   "features": {},
   "remoteEnv": {},
