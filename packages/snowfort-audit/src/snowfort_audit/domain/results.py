@@ -188,24 +188,40 @@ class CortexSummary:
         }
 
 
+_UNRELIABLE_ERROR_THRESHOLD = 0.05
+
+
 @dataclass(frozen=True)
 class AuditResult:
     violations: list[Violation] = field(default_factory=list)
     scorecard: AuditScorecard = field(default_factory=AuditScorecard)
     metadata: dict = field(default_factory=dict)
     cortex_summary: "CortexSummary | None" = field(default=None)
+    errored_rules: tuple[str, ...] = field(default_factory=tuple)
+    total_rules_executed: int = 0
+
+    @property
+    def reliable(self) -> bool:
+        """True when the scan error rate is at or below the 5% threshold."""
+        if self.total_rules_executed == 0:
+            return True
+        return len(self.errored_rules) / self.total_rules_executed <= _UNRELIABLE_ERROR_THRESHOLD
 
     @classmethod
     def from_violations(
         cls,
         violations: list[Violation],
         metadata: dict | None = None,
+        errored_rules: list[str] | None = None,
+        total_rules_executed: int = 0,
     ) -> "AuditResult":
         scorecard = AuditScorecard.from_violations(violations)
         return cls(
             violations=violations,
             scorecard=scorecard,
             metadata=metadata or {},
+            errored_rules=tuple(errored_rules) if errored_rules else (),
+            total_rules_executed=total_rules_executed,
         )
 
     def to_summary_dict(self) -> dict[str, int]:

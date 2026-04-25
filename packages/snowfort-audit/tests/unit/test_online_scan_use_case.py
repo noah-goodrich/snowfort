@@ -247,3 +247,31 @@ def test_fetch_batch_ddl_excludes_dropped_database_views(telemetry):
     assert result is not None
     assert "ACTIVE_DB.PUBLIC.V1" in result
     assert "DROPPED_DB.PUBLIC.V2" not in result
+
+
+def test_online_scan_errored_rules_populated_on_failure(telemetry):
+    """execute() populates use_case.errored_rules when a rule raises RuleExecutionError."""
+    from snowfort_audit.domain.rule_definitions import RuleExecutionError
+
+    mock_cursor = MagicMock()
+    mock_cursor.execute.return_value = None
+    mock_cursor.fetchall.return_value = []
+
+    mock_gateway = MagicMock()
+    mock_gateway.get_cursor.return_value = mock_cursor
+
+    good_rule = MagicMock()
+    good_rule.id = "SEC_001"
+    good_rule.name = "Good"
+    good_rule.check_online.return_value = []
+
+    bad_rule = MagicMock()
+    bad_rule.id = "COST_999"
+    bad_rule.name = "Bad"
+    bad_rule.check_online.side_effect = RuleExecutionError("COST_999", "boom")
+
+    use_case = OnlineScanUseCase(mock_gateway, [good_rule, bad_rule], telemetry)
+    use_case.execute()
+
+    assert "COST_999" in use_case.errored_rules
+    assert "SEC_001" not in use_case.errored_rules
