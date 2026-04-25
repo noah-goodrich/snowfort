@@ -6,7 +6,9 @@ from snowfort_audit.domain.rule_definitions import Severity
 from snowfort_audit.domain.rules.governance import (
     AccountBudgetEnforcement,
     FutureGrantsAntiPatternCheck,
+    InboundShareRiskCheck,
     ObjectDocumentationCheck,
+    OutboundShareRiskCheck,
 )
 
 
@@ -66,3 +68,33 @@ class TestGovernanceRules:
         violations = rule.check_online(mock_cursor)
         assert len(violations) == 1
         assert "not found or not accessible" in violations[0].message
+
+
+# ---------------------------------------------------------------------------
+# Regression: GOV_006 / GOV_007 column names
+# ---------------------------------------------------------------------------
+
+
+def test_gov006_sql_uses_type_imported_database():
+    """GOV_006 must query DATABASES with TYPE='IMPORTED DATABASE', not SHARE_NAME."""
+    rule = InboundShareRiskCheck()
+    c = MagicMock()
+    c.fetchall.return_value = []
+    rule.check_online(c)
+    sql = c.execute.call_args[0][0]
+    assert "IMPORTED DATABASE" in sql
+    assert "DATABASE_OWNER" in sql
+    assert "SHARE_NAME" not in sql
+
+
+def test_gov007_sql_uses_name_not_share_name():
+    """GOV_007 must query SHARES with NAME, not SHARE_NAME; no SHARE_KIND."""
+    rule = OutboundShareRiskCheck()
+    c = MagicMock()
+    c.fetchall.return_value = []
+    rule.check_online(c)
+    sql = c.execute.call_args[0][0]
+    assert "SELECT NAME" in sql
+    assert "SHARE_NAME" not in sql
+    assert "SHARE_KIND" not in sql
+    assert "DELETED_ON" in sql

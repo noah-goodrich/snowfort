@@ -8,6 +8,7 @@ from snowfort_audit.domain.rules.security_advanced import (
     ReadOnlyUserIntegrityCheck,
     ServiceRoleScopeCheck,
     ServiceUserScopeCheck,
+    TrustCenterExtensionsCheck,
 )
 
 
@@ -56,3 +57,21 @@ class TestAdvancedSecurityRules:
         assert len(violations) == 1
         assert violations[0].resource_name == "READER_RO"
         assert violations[0].severity == Severity.CRITICAL
+
+
+# ---------------------------------------------------------------------------
+# Regression: SEC_021 TRUST_CENTER.FINDINGS column names
+# ---------------------------------------------------------------------------
+
+
+def test_sec021_sql_uses_scanner_name_and_state():
+    """SEC_021 must use SCANNER_NAME (not FINDING_TYPE) and STATE (not STATUS)."""
+    rule = TrustCenterExtensionsCheck()
+    c = MagicMock()
+    c.fetchall.return_value = []
+    rule.check_online(c)
+    sql = c.execute.call_args[0][0]
+    assert "SCANNER_NAME" in sql
+    assert "STATE" in sql
+    assert "FINDING_TYPE" not in sql
+    assert "STATUS" not in sql

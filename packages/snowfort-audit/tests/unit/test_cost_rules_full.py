@@ -94,6 +94,17 @@ def test_zombie_wh():
     assert len(ZombieWarehouseCheck().check_online(c)) == 1
 
 
+def test_zombie_wh_sql_uses_timestamp_column():
+    """Regression: COST_002 must use TIMESTAMP (not START_TIME) for WAREHOUSE_EVENTS_HISTORY."""
+    c = MagicMock()
+    c.fetchall.side_effect = [[], []]
+    ZombieWarehouseCheck().check_online(c)
+    sql = c.execute.call_args_list[0][0][0]
+    assert "WAREHOUSE_EVENTS_HISTORY" in sql
+    assert "TIMESTAMP" in sql
+    assert "START_TIME" not in sql
+
+
 def test_zombie_wh_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()

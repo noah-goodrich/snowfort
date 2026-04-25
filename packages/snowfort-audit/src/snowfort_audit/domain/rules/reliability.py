@@ -280,20 +280,11 @@ class SchemaEvolutionCheck(Rule):
                     and not is_excluded_db_or_warehouse_name(r[TC_TABLE_CATALOG])
                 ][:50]
             else:
-                query = (
-                    """
-                SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME
-                FROM SNOWFLAKE.ACCOUNT_USAGE.TABLES
-                WHERE DELETED IS NULL
-                AND ENABLE_SCHEMA_EVOLUTION = 'YES'
-                """
-                    + SQL_EXCLUDE_SYSTEM_AND_SNOWFORT
-                    + """
-                LIMIT 50
-                """
-                )
-                cursor.execute(query)
-                rows = cursor.fetchall()
+                # ENABLE_SCHEMA_EVOLUTION is not available in ACCOUNT_USAGE.TABLES.
+                # The prefetch query supplies NULL for this column, so the
+                # scan_context path above will also return nothing.  This data
+                # is only available via SHOW TABLES or manifest input.
+                return []
             return [
                 Violation(
                     self.id,
@@ -530,16 +521,16 @@ class DynamicTableRefreshLagCheck(Rule):
     ) -> list[Violation]:
         query = """
         SELECT
-            TABLE_CATALOG,
-            TABLE_SCHEMA,
+            DATABASE_NAME,
+            SCHEMA_NAME,
             NAME,
             TARGET_LAG_SEC,
-            ACTUAL_LAG_SEC
+            DATEDIFF('second', DATA_TIMESTAMP, REFRESH_END_TIME) AS ACTUAL_LAG_SEC
         FROM SNOWFLAKE.ACCOUNT_USAGE.DYNAMIC_TABLE_REFRESH_HISTORY
         WHERE REFRESH_END_TIME >= DATEADD('hour', -24, CURRENT_TIMESTAMP())
-          AND ACTUAL_LAG_SEC IS NOT NULL
+          AND DATA_TIMESTAMP IS NOT NULL
           AND TARGET_LAG_SEC IS NOT NULL
-          AND ACTUAL_LAG_SEC > TARGET_LAG_SEC * 1.5
+          AND DATEDIFF('second', DATA_TIMESTAMP, REFRESH_END_TIME) > TARGET_LAG_SEC * 1.5
         LIMIT 50
         """
         try:
@@ -592,11 +583,11 @@ class DynamicTableFailureDetectionCheck(Rule):
     ) -> list[Violation]:
         query = """
         SELECT DISTINCT
-            TABLE_CATALOG,
-            TABLE_SCHEMA,
+            DATABASE_NAME,
+            SCHEMA_NAME,
             NAME,
             STATE,
-            ERROR_MESSAGE
+            STATE_MESSAGE
         FROM SNOWFLAKE.ACCOUNT_USAGE.DYNAMIC_TABLE_REFRESH_HISTORY
         WHERE REFRESH_END_TIME >= DATEADD('hour', -24, CURRENT_TIMESTAMP())
           AND STATE = 'FAILED'
