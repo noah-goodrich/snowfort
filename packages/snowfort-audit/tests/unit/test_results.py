@@ -303,3 +303,76 @@ def test_empty_violations_adjusted():
     assert sc.actionable_count == 0
     assert sc.expected_count == 0
     assert sc.informational_count == 0
+
+
+# ---------------------------------------------------------------------------
+# AC-1 (part 2): errored_rules + reliable flag on AuditResult
+# ---------------------------------------------------------------------------
+
+
+def test_audit_result_default_no_errored_rules():
+    """Default AuditResult has empty errored_rules and is reliable."""
+    result = AuditResult.from_violations([])
+    assert result.errored_rules == ()
+    assert result.total_rules_executed == 0
+    assert result.reliable is True
+
+
+def test_audit_result_with_errored_rules():
+    """errored_rules and total_rules_executed are passed through from_violations."""
+    result = AuditResult.from_violations(
+        [],
+        errored_rules=["SEC_001", "COST_012"],
+        total_rules_executed=100,
+    )
+    assert result.errored_rules == ("SEC_001", "COST_012")
+    assert result.total_rules_executed == 100
+
+
+def test_audit_result_reliable_when_no_errors():
+    """Scan with 100 rules and 0 errors is reliable."""
+    result = AuditResult.from_violations(
+        [],
+        total_rules_executed=100,
+    )
+    assert result.reliable is True
+
+
+def test_audit_result_reliable_at_five_percent_threshold():
+    """Scan with exactly 5% error rate (5 of 100) is still reliable."""
+    result = AuditResult.from_violations(
+        [],
+        errored_rules=["R1", "R2", "R3", "R4", "R5"],
+        total_rules_executed=100,
+    )
+    assert result.reliable is True
+
+
+def test_audit_result_unreliable_above_five_percent():
+    """Scan with >5% error rate (6 of 100) is unreliable."""
+    result = AuditResult.from_violations(
+        [],
+        errored_rules=["R1", "R2", "R3", "R4", "R5", "R6"],
+        total_rules_executed=100,
+    )
+    assert result.reliable is False
+
+
+def test_audit_result_reliable_with_zero_total_rules():
+    """Edge case: 0 total rules executed → reliable (no denominator issue)."""
+    result = AuditResult.from_violations(
+        [],
+        errored_rules=[],
+        total_rules_executed=0,
+    )
+    assert result.reliable is True
+
+
+def test_audit_result_errored_rules_frozen():
+    """errored_rules is stored as a tuple (frozen dataclass)."""
+    result = AuditResult.from_violations(
+        [],
+        errored_rules=["SEC_001"],
+        total_rules_executed=10,
+    )
+    assert isinstance(result.errored_rules, tuple)
