@@ -239,12 +239,12 @@ class TestReliabilityRules:
         assert len(rule.check(res, "EVO_TABLE")) == 1
 
     def test_schema_evolution_check_online(self):
+        """Without scan_context, returns [] — ENABLE_SCHEMA_EVOLUTION not in ACCOUNT_USAGE.TABLES."""
         rule = SchemaEvolutionCheck()
         mock_cursor = MagicMock()
         mock_cursor.fetchall.return_value = [("DB", "SCHEMA", "EVO_TABLE")]
         violations = rule.check_online(mock_cursor)
-        assert len(violations) == 1
-        assert "EVO_TABLE" in violations[0].resource_name
+        assert len(violations) == 0
 
     def test_schema_evolution_check_negative(self):
         rule = SchemaEvolutionCheck()
@@ -257,11 +257,11 @@ class TestReliabilityRules:
         assert rule.check({"type": "DYNAMIC TABLE"}, "dt") == []
 
     def test_schema_evolution_check_online_error(self):
+        """Without scan_context the rule returns [] immediately — no SQL, no exception path."""
         rule = SchemaEvolutionCheck()
         mock_cursor = MagicMock()
         mock_cursor.execute.side_effect = RuntimeError("DB Error")
-        with pytest.raises(RuleExecutionError):
-            rule.check_online(mock_cursor)
+        assert rule.check_online(mock_cursor) == []
 
     def test_aggressive_auto_suspend_check_online(self):
         rule = AggressiveAutoSuspendCheck()
