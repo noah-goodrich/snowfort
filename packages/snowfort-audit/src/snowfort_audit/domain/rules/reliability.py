@@ -14,7 +14,6 @@ from snowfort_audit.domain.rule_definitions import (
     is_excluded_db_or_warehouse_name,
 )
 from snowfort_audit.domain.scan_context import (
-    TC_ENABLE_SCHEMA_EVOLUTION,
     TC_RETENTION_TIME,
     TC_TABLE_CATALOG,
     TC_TABLE_NAME,
@@ -271,33 +270,10 @@ class SchemaEvolutionCheck(Rule):
         scan_context: ScanContext | None = None,
         **_kw,
     ) -> list[Violation]:
-        try:
-            if scan_context is not None and scan_context.tables is not None:
-                rows = [
-                    r
-                    for r in scan_context.tables
-                    if str(r[TC_ENABLE_SCHEMA_EVOLUTION] or "").upper() in ("YES", "TRUE", "1")
-                    and not is_excluded_db_or_warehouse_name(r[TC_TABLE_CATALOG])
-                ][:50]
-            else:
-                # ENABLE_SCHEMA_EVOLUTION is not available in ACCOUNT_USAGE.TABLES.
-                # The prefetch query supplies NULL for this column, so the
-                # scan_context path above will also return nothing.  This data
-                # is only available via SHOW TABLES or manifest input.
-                return []
-            return [
-                Violation(
-                    self.id,
-                    f"{row[TC_TABLE_CATALOG]}.{row[TC_TABLE_SCHEMA]}.{row[TC_TABLE_NAME]}",
-                    "Table has automatic schema evolution enabled.",
-                    self.severity,
-                )
-                for row in rows
-            ]
-        except Exception as exc:
-            if is_allowlisted_sf_error(exc):
-                return []
-            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
+        # ENABLE_SCHEMA_EVOLUTION is not exposed by ACCOUNT_USAGE.TABLES — only by
+        # SHOW TABLES (which requires per-database iteration). Until a SHOW-based
+        # path lands, REL_003 runs offline only via check() against manifest input.
+        return []
 
 
 class FailoverGroupCompletenessCheck(Rule):

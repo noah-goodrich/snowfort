@@ -101,7 +101,8 @@ def test_zombie_wh_sql_uses_timestamp_column():
     ZombieWarehouseCheck().check_online(c)
     sql = c.execute.call_args_list[0][0][0]
     assert "WAREHOUSE_EVENTS_HISTORY" in sql
-    assert "TIMESTAMP" in sql
+    # Match the WHERE-clause column ref, not the unrelated CURRENT_TIMESTAMP() call.
+    assert "WHERE TIMESTAMP" in sql
     assert "START_TIME" not in sql
 
 
