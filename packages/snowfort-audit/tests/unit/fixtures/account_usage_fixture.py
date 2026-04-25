@@ -101,11 +101,11 @@ _TAG_REFS = (
 
 # ── Tables fixture ────────────────────────────────────────────────────────────
 # Schema: TABLE_CATALOG=0, TABLE_SCHEMA=1, TABLE_NAME=2, TABLE_TYPE=3,
-#         BYTES=4, ROW_COUNT=5, RETENTION_TIME=6, ENABLE_SCHEMA_EVOLUTION=7,
-#         CLUSTERING_KEY=8, COMMENT=9
+#         BYTES=4, ROW_COUNT=5, RETENTION_TIME=6,
+#         CLUSTERING_KEY=7, COMMENT=8
 _TABLES = (
-    ("MY_APP_DB", "PUBLIC", "EVENTS", "BASE TABLE", 1024 * 1024 * 500, 1_000_000, 1, "NO", None, ""),
-    ("MY_APP_DB", "PUBLIC", "USERS", "BASE TABLE", 1024 * 1024 * 10, 50_000, 1, "NO", None, ""),
+    ("MY_APP_DB", "PUBLIC", "EVENTS", "BASE TABLE", 1024 * 1024 * 500, 1_000_000, 1, None, ""),
+    ("MY_APP_DB", "PUBLIC", "USERS", "BASE TABLE", 1024 * 1024 * 10, 50_000, 1, None, ""),
 )
 
 
