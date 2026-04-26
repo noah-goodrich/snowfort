@@ -847,8 +847,8 @@ class MFAAccountEnforcementCheck(Rule):
                         category=category,
                     )
                 ]
-            # SHOW PARAMETERS: key, value, default, level, description
-            actual = str(row[1]).strip().upper() if len(row) > 1 else ""
+            param_value = row[1] if len(row) > 1 else None
+            actual = str(param_value).strip().upper() if param_value is not None else ""
             if actual != "TRUE":
                 return [
                     self.violation(
@@ -978,8 +978,8 @@ class DataExfiltrationPreventionCheck(Rule):
                 row = cursor.fetchone()
                 if not row:
                     continue
-                # SHOW PARAMETERS: key, value, default, level, description
-                actual = str(row[1]).strip().upper() if len(row) > 1 else ""
+                param_value = row[1] if len(row) > 1 else None
+                actual = str(param_value).strip().upper() if param_value is not None else ""
                 if actual != expected_val.upper():
                     violations.append(
                         self.violation("Account", f"Data exfiltration: {msg} (current value: {param_name}={actual}).")
@@ -1118,13 +1118,13 @@ class RowAccessPolicyCoverageCheck(Rule):
         )
         try:
             cursor.execute(query)
-            return [
-                self.violation(
-                    row[0],
-                    "Table has sensitivity-tagged columns but no row access policy.",
+            violations = []
+            for row in cursor.fetchall():
+                (obj_name,) = row
+                violations.append(
+                    self.violation(obj_name, "Table has sensitivity-tagged columns but no row access policy.")
                 )
-                for row in cursor.fetchall()
-            ]
+            return violations
         except Exception as exc:
             if is_allowlisted_sf_error(exc):
                 return []

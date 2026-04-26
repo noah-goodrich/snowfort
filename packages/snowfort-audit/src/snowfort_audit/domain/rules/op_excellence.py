@@ -246,11 +246,11 @@ class MandatoryTaggingCheck(Rule):
                     tagged[(domain, obj_name)] = set(tags.keys())
         elif scan_context is not None and scan_context.tag_refs is not None:
             for row in scan_context.tag_refs:
-                domain = str(row[0]).upper()
+                domain = str(row[TR_DOMAIN]).upper()
                 if domain not in ("WAREHOUSE", "DATABASE"):
                     continue
-                key: tuple[str, str] = (domain, str(row[1]).upper())
-                tagged.setdefault(key, set()).add(str(row[2]).upper())
+                key: tuple[str, str] = (domain, str(row[TR_OBJECT_NAME]).upper())
+                tagged.setdefault(key, set()).add(str(row[TR_TAG_NAME]).upper())
         else:
             cursor.execute(
                 "SELECT DOMAIN, OBJECT_NAME, TAG_NAME"
