@@ -334,5 +334,5 @@ DEPRECATED_COLUMNS: dict[str, frozenset[str]] = {
     # TrustCenterExtensionsCheck: used FINDING_TYPE and STATUS
     "TRUST_CENTER.FINDINGS": frozenset({"STATUS"}),
     # OutboundShareRiskCheck: used SHARE_NAME (column is NAME) and DELETED (column is DELETED_ON)
-    "SHARES": frozenset({"SHARE_NAME"}),
+    "SHARES": frozenset({"SHARE_NAME", "DELETED"}),
 }

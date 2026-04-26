@@ -14,7 +14,7 @@ Helper contract:
 import re
 from unittest.mock import MagicMock
 
-from tests.unit.fixtures.account_usage_schema import CORTEX_USAGE_VIEWS, DEPRECATED_COLUMNS
+from tests.unit.fixtures.account_usage_schema import ACCOUNT_USAGE_SCHEMA, CORTEX_USAGE_VIEWS, DEPRECATED_COLUMNS
 
 
 def _capture_sqls(mock_cursor) -> list[str]:
@@ -205,8 +205,6 @@ def test_cortex_search_uses_usage_date():
 
 def test_account_usage_schema_covers_required_views():
     """Fixture covers the 8 views that had bugs plus additional commonly-used views (≥13)."""
-    from tests.unit.fixtures.account_usage_schema import ACCOUNT_USAGE_SCHEMA
-
     required_views = {
         "WAREHOUSE_EVENTS_HISTORY",
         "DYNAMIC_TABLE_REFRESH_HISTORY",
@@ -229,8 +227,6 @@ def test_account_usage_schema_covers_required_views():
 
 def test_deprecated_columns_not_in_valid_schema():
     """Deprecated columns (for most views) should not appear in the valid column set."""
-    from tests.unit.fixtures.account_usage_schema import ACCOUNT_USAGE_SCHEMA
-
     # WAREHOUSE_EVENTS_HISTORY: START_TIME was wrong, TIMESTAMP is right
     weh = ACCOUNT_USAGE_SCHEMA["WAREHOUSE_EVENTS_HISTORY"]
     assert "TIMESTAMP" in weh, "TIMESTAMP must be in valid columns for WAREHOUSE_EVENTS_HISTORY"
