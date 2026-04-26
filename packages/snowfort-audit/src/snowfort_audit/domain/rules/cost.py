@@ -144,7 +144,8 @@ class AggressiveAutoSuspendCheck(Rule):
                 """
                 cursor.execute(tag_query)
                 for row in cursor.fetchall():
-                    env_tags[row[0].upper()] = row[1].upper()
+                    obj_name, tag_value = row[0], row[1]
+                    env_tags[obj_name.upper()] = tag_value.upper()
         except Exception as exc:
             if is_allowlisted_sf_error(exc):
                 return env_tags
@@ -583,9 +584,10 @@ class PerWarehouseStatementTimeoutCheck(Rule):
             cursor.execute("SHOW PARAMETERS LIKE 'STATEMENT_TIMEOUT_IN_SECONDS' IN ACCOUNT")
             acct_row = cursor.fetchone()
             try:
+                acct_timeout = acct_row[1] if acct_row else None
                 account_default = (
-                    int(cast(str | int, acct_row[1]))
-                    if acct_row and acct_row[1] not in (None, "", "null")
+                    int(cast(str | int, acct_timeout))
+                    if acct_timeout not in (None, "", "null")
                     else self.DEFAULT_TIMEOUT_SECONDS
                 )
             except (TypeError, ValueError):
