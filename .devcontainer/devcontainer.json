@@ -7,8 +7,8 @@
   "runServices": [
     "snowfort-audit-app"
   ],
-  "initializeCommand": "bash -c 'touch ${localWorkspaceFolder}/.devcontainer/.secrets.env'",
-  "postCreateCommand": "mkdir -p /home/dev/.config /home/dev/.snowflake; cd /development && pre-commit install; cd /development/packages/snowfort-audit && pip install -e '.[dev]' || true",
+  "initializeCommand": "bash -c 'touch ${localWorkspaceFolder}/.devcontainer/.secrets.env; env_file=\"${localWorkspaceFolder}/.devcontainer/.secrets.env\"; grep -q SNOWFLAKE_CONNECTIONS_BAB08413_TOKEN \"$env_file\" 2>/dev/null || printf \"SNOWFLAKE_PAT=%s\\nSNOWFLAKE_CONNECTIONS_BAB08413_AUTHENTICATOR=PROGRAMMATIC_ACCESS_TOKEN\\nSNOWFLAKE_CONNECTIONS_BAB08413_TOKEN=%s\\n\" \"$SNOWFLAKE_PAT\" \"$SNOWFLAKE_PAT\" > \"$env_file\"'",
+  "postCreateCommand": "ln -sf /home/dev/.config/dotfiles/zsh/.zshrc /home/dev/.zshrc; ln -sf /home/dev/.config/dotfiles/zsh/.p10k.zsh /home/dev/.p10k.zsh; mkdir -p /home/dev/.config /home/dev/.snowflake; cd /development && pre-commit install; cd /development/packages/snowfort-audit && pip install -e '.[dev]' || true",
   "features": {},
   "remoteEnv": {},
   "containerEnv": {
@@ -16,7 +16,7 @@
     "KEYRING_FILE_PATH": "/home/dev/.config/snowfort-keyring",
     "SNOWFLAKE_AUTH_FORCE_SERVER_URL": "1"
   },
-  "postStartCommand": "cp /host-home/.claude.json /home/dev/.claude.json 2>/dev/null || true; sudo mkdir -p /Users && sudo ln -sfn /home/dev /Users/noah; sudo chmod 666 /run/host-services/ssh-auth.sock 2>/dev/null || true",
+  "postStartCommand": "cp /host-home/.claude.json /home/dev/.claude.json 2>/dev/null || true; sudo mkdir -p /Users && sudo ln -sfn /home/dev /Users/noah; sudo chmod 666 /run/host-services/ssh-auth.sock 2>/dev/null || true; sudo npm install -g @anthropic-ai/claude-code >/tmp/claude-update.log 2>&1 &",
   "shutdownAction": "stopCompose",
   "remoteUser": "dev",
   "updateRemoteUserUID": true

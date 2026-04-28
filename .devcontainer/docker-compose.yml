@@ -14,8 +14,8 @@ services:
       # Brings your shell, editor, and git config into the container
       # so the environment feels identical to your host.
       # ---------------------------------------------------------------
-      - ~/.zshrc:/home/dev/.zshrc:cached                          # zsh config
-      - ~/.p10k.zsh:/home/dev/.p10k.zsh:cached                    # p10k prompt config
+      - ~/.config/dotfiles/zsh:/home/dev/.config/dotfiles/zsh:cached  # zsh config + secrets.zsh
+      - ~/.config/dotfiles/claude:/home/dev/.config/dotfiles/claude:cached  # claude config
       - ~/.config/zsh:/home/dev/.config/zsh:cached                # zsh plugins (p10k, autosuggestions, syntax-highlight)
       - ~/.config/nvim:/home/dev/.config/nvim:cached              # neovim config
       # Selective ~/.ssh mounts — see dotfiles/devcontainer/docker-compose.base.yml
@@ -30,12 +30,15 @@ services:
       # host home read-only — postStartCommand copies .claude.json fresh each start
       # (avoids stale inode from Claude Code's atomic file replacement)
       - ~/:/host-home:ro
+      - ~/.snowflake:/home/dev/.snowflake:cached                      # Cortex CLI auth (connections.toml + PAT)
+      - ~/.config/gh:/home/dev/.config/gh:ro                          # gh CLI auth
       # ---------------------------------------------------------------
 
     env_file:
       - .secrets.env
     environment:
       SSH_AUTH_SOCK: /run/host-services/ssh-auth.sock
+      GH_TOKEN: ${GH_TOKEN:-}
     command: sleep infinity
     networks:
       - devnet

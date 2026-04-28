@@ -14,3 +14,4 @@ coverage.json
 # Devcontainer secrets
 .devcontainer/.secrets.env
 .borg-project
+.borg/
