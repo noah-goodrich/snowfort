@@ -394,6 +394,9 @@ class AuditTUI(App):
             out.write_text(
                 yaml.dump(report_data, default_flow_style=False, sort_keys=False, allow_unicode=True), encoding="utf-8"
             )
+            from snowfort_audit.interface.cli.report import _restrict_to_owner
+
+            _restrict_to_owner(out)
             self.notify(f"Exported to {out}", severity="information")
         except Exception as e:
             self.notify(f"Export failed: {e}", severity="error")

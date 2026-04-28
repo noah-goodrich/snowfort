@@ -1,6 +1,7 @@
 """Report rendering and formatting for audit CLI (scorecard, findings, YAML export)."""
 
 import json
+import os
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -130,6 +131,18 @@ def write_audit_cache(
     }
     with open(cache_file, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, default=str)
+    _restrict_to_owner(cache_file)
+
+
+def _restrict_to_owner(path: Path) -> None:
+    """chmod 0600 — audit output may contain FQDN/PII column names; deny world+group reads.
+
+    No-op on Windows (NTFS permissions don't translate); chmod is best-effort on Linux/macOS.
+    """
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
 
 
 def _render_manifest_json(

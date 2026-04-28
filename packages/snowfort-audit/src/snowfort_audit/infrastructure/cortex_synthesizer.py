@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from typing import Any
 
@@ -10,6 +11,15 @@ from snowfort_audit.domain.rule_definitions import FindingCategory, Violation
 from snowfort_audit.infrastructure.database_errors import SnowflakeConnectorError
 
 logger = logging.getLogger(__name__)
+
+# Matches the most common FQDN-ish patterns we see in violation messages so we can
+# replace them with stable opaque tokens before forwarding to a third-party LLM.
+# Order matters: longest forms first so a 4-part name doesn't get partially replaced.
+_FQDN_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\b[A-Z][A-Z0-9_]*\.[A-Z][A-Z0-9_]*\.[A-Z][A-Z0-9_]*\.[A-Z][A-Z0-9_]*\b"),  # DB.SCHEMA.TABLE.COLUMN
+    re.compile(r"\b[A-Z][A-Z0-9_]*\.[A-Z][A-Z0-9_]*\.[A-Z][A-Z0-9_]*\b"),  # DB.SCHEMA.TABLE
+    re.compile(r"\b[A-Z][A-Z0-9_]*\.[A-Z][A-Z0-9_]*\b"),  # DB.SCHEMA
+)
 
 _STRUCTURED_PROMPT = (
     "Act as a Principal Snowflake Architect. Analyze the following audit findings "
@@ -68,8 +78,41 @@ def _parse_structured_response(text: str) -> CortexSummary:
     return CortexSummary(tl_dr=tl_dr, top_risks=top_risks, quick_wins=quick_wins)
 
 
+def _redact_message(message: str) -> str:
+    """Replace fully-qualified Snowflake names in a violation message with opaque tokens.
+
+    Stops customer schema topology and column names (which can be PII like ``PATIENT_SSN``)
+    from leaking into a third-party LLM prompt. Tokens are stable per-message so the LLM
+    can still reason about "which finding is which".
+    """
+    counter = {"n": 0}
+    seen: dict[str, str] = {}
+
+    def _replace(match: re.Match[str]) -> str:
+        original = match.group(0)
+        if original not in seen:
+            counter["n"] += 1
+            seen[original] = f"<RESOURCE_{counter['n']}>"
+        return seen[original]
+
+    redacted = message
+    for pattern in _FQDN_PATTERNS:
+        redacted = pattern.sub(_replace, redacted)
+    return redacted
+
+
+def _cortex_disabled_by_env() -> bool:
+    return os.environ.get("SNOWFORT_DISABLE_CORTEX", "").strip().lower() in {"1", "true", "yes"}
+
+
 class CortexSynthesizer(AISynthesizerProtocol):
-    """Uses Snowflake Cortex to synthesize audit findings."""
+    """Uses Snowflake Cortex to synthesize audit findings.
+
+    Violation messages are redacted before being embedded in the prompt — fully-qualified
+    Snowflake names are replaced with opaque tokens (``<RESOURCE_N>``) so the LLM never
+    sees customer schema topology or column names. Set ``SNOWFORT_DISABLE_CORTEX=1`` in
+    the environment to hard-disable the synthesizer regardless of CLI flags.
+    """
 
     def __init__(self, cursor: Any, model: str = "mistral-large"):
         self.cursor = cursor
@@ -81,19 +124,19 @@ class CortexSynthesizer(AISynthesizerProtocol):
 
     def summarize_structured(self, violations: list[Violation]) -> CortexSummary:
         """Return a structured CortexSummary from audit violations."""
+        if _cortex_disabled_by_env():
+            return CortexSummary(tl_dr="Cortex disabled by SNOWFORT_DISABLE_CORTEX environment variable.")
         if not violations:
             return CortexSummary(tl_dr="No violations found. Account is in good standing.")
 
-        serialized = "\n".join([f"- [{v.rule_id}] {v.message}" for v in violations[:50]])
+        serialized = "\n".join([f"- [{v.rule_id}] {_redact_message(v.message)}" for v in violations[:50]])
         prompt = _STRUCTURED_PROMPT.format(
             findings=serialized,
             category_breakdown=_category_breakdown(violations),
         )
-        sanitized_prompt = prompt.replace("'", "''")
-        query = f"SELECT SNOWFLAKE.CORTEX.COMPLETE('{self.model}', '{sanitized_prompt}')"
 
         try:
-            self.cursor.execute(query)
+            self.cursor.execute("SELECT SNOWFLAKE.CORTEX.COMPLETE(%s, %s)", (self.model, prompt))
             result = self.cursor.fetchall()
             if result and result[0][0]:
                 return _parse_structured_response(str(result[0][0]))

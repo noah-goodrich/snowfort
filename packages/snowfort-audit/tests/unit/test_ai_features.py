@@ -19,15 +19,15 @@ class TestAIFeatures:
             Violation("PERF_006", "WH_LARGE", "Oversized. Save $100.", Severity.MEDIUM),
         ]
 
-        # Mock Cortex SQL Output
         mock_cursor.fetchall.return_value = [("This account has significant cost saving opportunities...",)]
 
         summary = synthesizer.summarize(violations)
 
         assert "This account has significant cost saving opportunities" in summary
-        # Verify SQL query contained the violations text
         args, _ = mock_cursor.execute.call_args
-        query = args[0]
-        assert "Isolation Pivot" in query
-        assert "Oversized" in query
-        assert "SNOWFLAKE.CORTEX.COMPLETE" in query
+        query, params = args[0], args[1]
+        assert "SNOWFLAKE.CORTEX.COMPLETE(%s, %s)" in query
+        assert params[0] == "mistral-large"
+        prompt = params[1]
+        assert "Isolation Pivot" in prompt
+        assert "Oversized" in prompt

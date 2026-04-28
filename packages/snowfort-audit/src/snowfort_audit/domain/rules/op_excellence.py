@@ -751,16 +751,31 @@ class PermifrostDriftCheck(Rule):
                 result.setdefault(user_name.upper(), set()).add(role.upper())
         return result
 
-    def _actual_user_roles(self, cursor: SnowflakeCursorProtocol) -> dict[str, set[str]] | None:
-        """Query actual user→role grants from GRANTS_TO_USERS."""
+    def _actual_user_roles(
+        self,
+        cursor: SnowflakeCursorProtocol,
+        scan_context: ScanContext | None = None,
+    ) -> dict[str, set[str]] | None:
+        """Query actual user→role grants from the shared GRANTS_TO_USERS prefetch cache."""
+        from snowfort_audit.domain.rules._grants import (
+            GRANTS_CACHE_WINDOW,
+            GTU_GRANTEE_NAME,
+            GTU_ROLE,
+            gtu_fetcher,
+        )
+
         try:
-            cursor.execute(
-                "SELECT GRANTEE_NAME, ROLE FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_USERS"
-                " WHERE DELETED_ON IS NULL LIMIT 5000"
-            )
+            if scan_context is not None:
+                rows = scan_context.get_or_fetch("GRANTS_TO_USERS", GRANTS_CACHE_WINDOW, gtu_fetcher(cursor))
+            else:
+                cursor.execute(
+                    "SELECT GRANTEE_NAME, ROLE FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_USERS WHERE DELETED_ON IS NULL"
+                )
+                rows = tuple(cursor.fetchall())
             result: dict[str, set[str]] = {}
-            for row in cursor.fetchall():
-                grantee_name, role = row[0], row[1]
+            for row in rows:
+                grantee_name = row[GTU_GRANTEE_NAME]
+                role = row[GTU_ROLE]
                 result.setdefault(str(grantee_name).upper(), set()).add(str(role).upper())
             return result
         except Exception as exc:
@@ -771,7 +786,12 @@ class PermifrostDriftCheck(Rule):
             raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
     def check_online(
-        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+        self,
+        cursor: SnowflakeCursorProtocol,
+        _resource_name: str | None = None,
+        *,
+        scan_context: ScanContext | None = None,
+        **_kw,
     ) -> list[Violation]:
         if self._spec_path is None:
             if self.telemetry:
@@ -786,7 +806,7 @@ class PermifrostDriftCheck(Rule):
         spec_user_roles = self._spec_user_roles(spec)
         if not spec_user_roles:
             return []
-        actual = self._actual_user_roles(cursor)
+        actual = self._actual_user_roles(cursor, scan_context=scan_context)
         if actual is None:
             return []
         violations = []

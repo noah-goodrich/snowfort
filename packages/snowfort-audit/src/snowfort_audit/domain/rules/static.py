@@ -13,6 +13,12 @@ from snowfort_audit.domain.rule_definitions import Rule, Severity, Violation
 
 # Removed Infrastructure import
 
+# This regex IS the secret-exposure detector — flagging credential KEYWORDS in
+# user-provided SQL/YAML. The lint pattern below is a deliberate match.
+_SECRET_KEYWORD_RE = re.compile(
+    r'(?i)(password|pwd|private_key|secret|token)\s*[:=]\s*["\'].+["\']'
+)  # sensitive-output-ok
+
 
 class HardcodedEnvCheck(Rule):
     """STAT_001: Flag SQL containing hardcoded _DEV, _PROD suffixes."""
@@ -94,12 +100,12 @@ class SecretExposureCheck(Rule):
         )
 
     def check_static(self, file_content: str, file_path: str) -> list[Violation]:
-        if re.search(r'(?i)(password|pwd|private_key|secret|token)\s*[:=]\s*["\'].+["\']', file_content):
+        if _SECRET_KEYWORD_RE.search(file_content):
             return [
                 Violation(
                     self.id,
                     file_path,
-                    "Potential hardcoded secret detected",
+                    "Potential hardcoded secret detected",  # sensitive-output-ok: describes finding, not value
                     self.severity,
                     remediation_key=self.remediation_key,
                 )
@@ -165,8 +171,10 @@ class SelectStarCheck(Rule):
         if not _resource_name:
             return []
 
+        from snowfort_audit.domain.sql_safety import escape_string_literal
+
         try:
-            cursor.execute(f"SELECT GET_DDL('VIEW', '{_resource_name}')")
+            cursor.execute(f"SELECT GET_DDL('VIEW', '{escape_string_literal(_resource_name)}')")
             row = cursor.fetchone()
             if row and row[0]:
                 return self.check_static(row[0], _resource_name)

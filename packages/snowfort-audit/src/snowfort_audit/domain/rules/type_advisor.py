@@ -6,7 +6,13 @@ if TYPE_CHECKING:
     from snowfort_audit._vendor.protocols import SnowflakeCursorProtocol
 
 from snowfort_audit.domain.protocols import TelemetryPort
-from snowfort_audit.domain.rule_definitions import Rule, Severity, Violation
+from snowfort_audit.domain.rule_definitions import (
+    Rule,
+    RuleExecutionError,
+    Severity,
+    Violation,
+    is_allowlisted_sf_error,
+)
 
 # Removed Infrastructure import
 
@@ -61,10 +67,10 @@ class Gen2UpgradeCheck(Rule):
                         )
                     )
             return violations
-        except (Exception, RuntimeError) as e:
-            if self.telemetry:
-                self.telemetry.error(f"Gen2UpgradeCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
 
 class SnowparkOptimizationCheck(Rule):
@@ -116,7 +122,7 @@ class SnowparkOptimizationCheck(Rule):
                         )
                     )
             return violations
-        except (Exception, RuntimeError) as e:
-            if self.telemetry:
-                self.telemetry.error(f"SnowparkOptimizationCheck failed: {e}")
-            return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc

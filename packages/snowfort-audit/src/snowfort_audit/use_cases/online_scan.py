@@ -325,14 +325,26 @@ class OnlineScanUseCase:
         Returns {view_name: ddl} dict, or None if unavailable (triggers fallback).
         """
         try:
-            # A2: fetch active databases first to skip views from dropped databases.
             cur.execute("SELECT DATABASE_NAME FROM SNOWFLAKE.ACCOUNT_USAGE.DATABASES WHERE DELETED IS NULL")
             active_dbs_upper: frozenset[str] = frozenset(str(r[0]).upper() for r in cur.fetchall())
 
+            # Push DB exclusion + active-DB filter into the WHERE clause so non-target view
+            # DDLs (which can be GBs of text and may contain literal PII in WHERE clauses)
+            # never traverse the wire. Plus a length guard to skip pathological generated views.
+            excluded_all = sorted(excluded_dbs | excluded_db_like)
+            active_dbs_sorted = sorted(active_dbs_upper)
+            db_filter = ""
+            if excluded_all:
+                excluded_list = ", ".join(f"'{db.replace(chr(39), chr(39) * 2)}'" for db in excluded_all)
+                db_filter += f" AND UPPER(TABLE_CATALOG) NOT IN ({excluded_list})"
+            if active_dbs_sorted:
+                active_list = ", ".join(f"'{db.replace(chr(39), chr(39) * 2)}'" for db in active_dbs_sorted)
+                db_filter += f" AND UPPER(TABLE_CATALOG) IN ({active_list})"
             cur.execute(
                 "SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME, VIEW_DEFINITION"
                 " FROM SNOWFLAKE.ACCOUNT_USAGE.VIEWS"
                 " WHERE DELETED IS NULL AND VIEW_DEFINITION IS NOT NULL"
+                "   AND LENGTH(VIEW_DEFINITION) < 1000000" + db_filter
             )
             rows = cur.fetchall()
             ddl_map: dict[str, str] = {}
@@ -340,10 +352,13 @@ class OnlineScanUseCase:
                 if len(row) < 4:
                     continue
                 catalog = (row[0] or "").upper()
+                # Defense-in-depth: SQL filter is the primary gate, but re-check in Python
+                # so a missing/loose filter (e.g. older Snowflake without UPPER() pushdown)
+                # still excludes system DBs and views from dropped databases.
                 if catalog in excluded_dbs or catalog in excluded_db_like:
                     continue
-                if catalog not in active_dbs_upper:
-                    continue  # A2: skip views from dropped databases
+                if active_dbs_upper and catalog not in active_dbs_upper:
+                    continue
                 view_name = f"{row[0]}.{row[1]}.{row[2]}"
                 ddl_map[view_name] = row[3] or ""
             self.telemetry.debug(f"  Batch DDL: fetched DDL for {len(ddl_map)} views via ACCOUNT_USAGE.VIEWS.")

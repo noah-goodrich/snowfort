@@ -325,9 +325,11 @@ class NetworkPerimeterCheck(Rule):
         effective_severity: Severity | None = None,
     ) -> list[Violation]:
         """Runs DESCRIBE NETWORK POLICY and checks for 0.0.0.0/0."""
+        from snowfort_audit.domain.sql_safety import quote_identifier
+
         sev = effective_severity if effective_severity is not None else self.severity
         try:
-            cursor.execute(f"DESCRIBE NETWORK POLICY {policy_name}")
+            cursor.execute(f"DESCRIBE NETWORK POLICY {quote_identifier(policy_name)}")
             rows = cursor.fetchall()
             for row in rows:
                 param_name, param_value = row[0], row[1]
@@ -516,7 +518,12 @@ class ServiceUserSecurityCheck(Rule):
                     has_key = str(user[cols["has_rsa_public_key"]]).lower() == "true"
 
                     if has_pwd:
-                        violations.append(self.violation("User", f"Service User '{name}' has password. Use Keys only."))
+                        violations.append(
+                            self.violation(
+                                "User",
+                                f"Service User '{name}' has password. Use Keys only.",  # sensitive-output-ok
+                            )
+                        )
 
                     if not has_key:
                         violations.append(
@@ -798,7 +805,7 @@ class FederatedAuthenticationCheck(Rule):
                     violations.append(
                         self.violation(
                             "User",
-                            f"User '{name}' uses password-only auth; enable MFA/SSO or key-pair.",
+                            f"User '{name}' uses password-only auth; enable MFA/SSO or key-pair.",  # sensitive-output-ok
                             severity=severity,
                             category=category,
                         )
@@ -927,13 +934,13 @@ class PasswordPolicyCheck(Rule):
         self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
     ) -> list[Violation]:
         try:
-            cursor.execute("SHOW PASSWORD POLICIES IN ACCOUNT")
+            cursor.execute("SHOW PASSWORD POLICIES IN ACCOUNT")  # sensitive-output-ok
             policies = cursor.fetchall()
             if not policies:
                 return [
                     self.violation(
                         "Account",
-                        "No password policy defined in account; define and apply one for authentication hardening.",
+                        "No password policy defined in account; define and apply one for authentication hardening.",  # sensitive-output-ok
                     )
                 ]
         except Exception as exc:
