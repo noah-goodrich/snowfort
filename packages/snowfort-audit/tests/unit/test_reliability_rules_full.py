@@ -7,6 +7,8 @@ import pytest
 from snowfort_audit.domain.rule_definitions import RuleExecutionError
 from snowfort_audit.domain.rules.reliability import (
     AdequateTimeTravelRetentionCheck,
+    DynamicTableFailureDetectionCheck,
+    DynamicTableRefreshLagCheck,
     FailedTaskDetectionCheck,
     FailoverGroupCompletenessCheck,
     PipelineObjectReplicationCheck,
@@ -95,16 +97,17 @@ def test_schema_evolution_non_table():
 
 
 def test_schema_evolution_online():
+    """Without scan_context, returns [] — ENABLE_SCHEMA_EVOLUTION is not in ACCOUNT_USAGE.TABLES."""
     c = MagicMock()
     c.fetchall.return_value = [("DB", "SCH", "TBL")]
-    assert len(SchemaEvolutionCheck().check_online(c)) == 1
+    assert SchemaEvolutionCheck().check_online(c) == []
 
 
 def test_schema_evolution_online_exc():
+    """Without scan_context the rule returns [] immediately — no SQL executed, no exception path."""
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    with pytest.raises(RuleExecutionError):
-        SchemaEvolutionCheck().check_online(c)
+    assert SchemaEvolutionCheck().check_online(c) == []
 
 
 def test_failover_group_missing_objects():
@@ -202,3 +205,44 @@ def test_pipeline_replication_dedup():
     c.fetchall.return_value = [("PRD_DB",), ("PRD_DB",)]
     v = PipelineObjectReplicationCheck().check_online(c)
     assert len(v) == 1
+
+
+# ---------------------------------------------------------------------------
+# Regression: DYNAMIC_TABLE_REFRESH_HISTORY column names
+# ---------------------------------------------------------------------------
+
+
+def test_rel009_sql_uses_database_name_not_table_catalog():
+    """REL_009 SQL must use DATABASE_NAME/SCHEMA_NAME, not TABLE_CATALOG/TABLE_SCHEMA."""
+    rule = DynamicTableRefreshLagCheck()
+    c = MagicMock()
+    c.fetchall.return_value = []
+    rule.check_online(c)
+    sql = c.execute.call_args[0][0]
+    assert "DATABASE_NAME" in sql
+    assert "SCHEMA_NAME" in sql
+    assert "TABLE_CATALOG" not in sql
+    assert "TABLE_SCHEMA" not in sql
+    assert "ACTUAL_LAG_SEC" not in sql.split("FROM")[1]  # no raw column ref after FROM
+
+
+def test_rel010_sql_uses_database_name_and_state_message():
+    """REL_010 SQL must use DATABASE_NAME/SCHEMA_NAME/STATE_MESSAGE."""
+    rule = DynamicTableFailureDetectionCheck()
+    c = MagicMock()
+    c.fetchall.return_value = []
+    rule.check_online(c)
+    sql = c.execute.call_args[0][0]
+    assert "DATABASE_NAME" in sql
+    assert "SCHEMA_NAME" in sql
+    assert "STATE_MESSAGE" in sql
+    assert "TABLE_CATALOG" not in sql
+    assert "TABLE_SCHEMA" not in sql
+    assert "ERROR_MESSAGE" not in sql
+
+
+def test_rel003_fallback_returns_empty_without_scan_context():
+    """REL_003 returns [] when scan_context is None (ENABLE_SCHEMA_EVOLUTION unavailable)."""
+    rule = SchemaEvolutionCheck()
+    c = MagicMock()
+    assert rule.check_online(c, scan_context=None) == []

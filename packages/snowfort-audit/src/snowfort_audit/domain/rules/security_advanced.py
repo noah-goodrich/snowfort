@@ -441,12 +441,12 @@ class TrustCenterExtensionsCheck(Rule):
     ) -> list[Violation]:
         try:
             cursor.execute(
-                "SELECT FINDING_TYPE, SEVERITY, COUNT(*) AS cnt"
+                "SELECT SCANNER_NAME, SEVERITY, COUNT(*) AS cnt"
                 " FROM SNOWFLAKE.TRUST_CENTER.FINDINGS"
                 " WHERE SEVERITY IN ('HIGH', 'CRITICAL')"
-                "  AND STATUS != 'RESOLVED'"
+                "  AND STATE != 'RESOLVED'"
                 " GROUP BY 1, 2"
-                " ORDER BY SEVERITY, FINDING_TYPE"
+                " ORDER BY SEVERITY, SCANNER_NAME"
             )
             return [
                 Violation(

@@ -224,7 +224,7 @@ class ZombieWarehouseCheck(Rule):
         query = """
         SELECT WAREHOUSE_NAME
         FROM SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_EVENTS_HISTORY
-        WHERE START_TIME > DATEADD('day', -7, CURRENT_TIMESTAMP())
+        WHERE TIMESTAMP > DATEADD('day', -7, CURRENT_TIMESTAMP())
         GROUP BY 1
         """
         try:

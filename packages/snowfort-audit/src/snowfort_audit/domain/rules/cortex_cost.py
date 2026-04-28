@@ -47,7 +47,7 @@ CORTEX_WINDOW_DAYS = 30
 # ---------------------------------------------------------------------------
 
 
-def _cortex_fetcher(cursor: SnowflakeCursorProtocol, view: str, time_col: str = "USAGE_TIME"):
+def _cortex_fetcher(cursor: SnowflakeCursorProtocol, view: str, time_col: str = "START_TIME"):
     """Return a get_or_fetch-compatible fetcher for a CORTEX ACCOUNT_USAGE view.
 
     Fetches up to 50 000 rows within the last CORTEX_WINDOW_DAYS days.
@@ -80,7 +80,7 @@ class _CortexRule(Rule):
     """
 
     VIEW: str = ""
-    TIME_COL: str = "USAGE_TIME"
+    TIME_COL: str = "START_TIME"
 
     def _get_rows(
         self,

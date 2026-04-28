@@ -14,7 +14,6 @@ from snowfort_audit.domain.rule_definitions import (
     is_excluded_db_or_warehouse_name,
 )
 from snowfort_audit.domain.scan_context import (
-    TC_ENABLE_SCHEMA_EVOLUTION,
     TC_RETENTION_TIME,
     TC_TABLE_CATALOG,
     TC_TABLE_NAME,
@@ -271,42 +270,10 @@ class SchemaEvolutionCheck(Rule):
         scan_context: ScanContext | None = None,
         **_kw,
     ) -> list[Violation]:
-        try:
-            if scan_context is not None and scan_context.tables is not None:
-                rows = [
-                    r
-                    for r in scan_context.tables
-                    if str(r[TC_ENABLE_SCHEMA_EVOLUTION] or "").upper() in ("YES", "TRUE", "1")
-                    and not is_excluded_db_or_warehouse_name(r[TC_TABLE_CATALOG])
-                ][:50]
-            else:
-                query = (
-                    """
-                SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME
-                FROM SNOWFLAKE.ACCOUNT_USAGE.TABLES
-                WHERE DELETED IS NULL
-                AND ENABLE_SCHEMA_EVOLUTION = 'YES'
-                """
-                    + SQL_EXCLUDE_SYSTEM_AND_SNOWFORT
-                    + """
-                LIMIT 50
-                """
-                )
-                cursor.execute(query)
-                rows = cursor.fetchall()
-            return [
-                Violation(
-                    self.id,
-                    f"{row[TC_TABLE_CATALOG]}.{row[TC_TABLE_SCHEMA]}.{row[TC_TABLE_NAME]}",
-                    "Table has automatic schema evolution enabled.",
-                    self.severity,
-                )
-                for row in rows
-            ]
-        except Exception as exc:
-            if is_allowlisted_sf_error(exc):
-                return []
-            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
+        # ENABLE_SCHEMA_EVOLUTION is not exposed by ACCOUNT_USAGE.TABLES — only by
+        # SHOW TABLES (which requires per-database iteration). Until a SHOW-based
+        # path lands, REL_003 runs offline only via check() against manifest input.
+        return []
 
 
 class FailoverGroupCompletenessCheck(Rule):
@@ -530,16 +497,16 @@ class DynamicTableRefreshLagCheck(Rule):
     ) -> list[Violation]:
         query = """
         SELECT
-            TABLE_CATALOG,
-            TABLE_SCHEMA,
+            DATABASE_NAME,
+            SCHEMA_NAME,
             NAME,
             TARGET_LAG_SEC,
-            ACTUAL_LAG_SEC
+            DATEDIFF('second', DATA_TIMESTAMP, REFRESH_END_TIME) AS ACTUAL_LAG_SEC
         FROM SNOWFLAKE.ACCOUNT_USAGE.DYNAMIC_TABLE_REFRESH_HISTORY
         WHERE REFRESH_END_TIME >= DATEADD('hour', -24, CURRENT_TIMESTAMP())
-          AND ACTUAL_LAG_SEC IS NOT NULL
+          AND DATA_TIMESTAMP IS NOT NULL
           AND TARGET_LAG_SEC IS NOT NULL
-          AND ACTUAL_LAG_SEC > TARGET_LAG_SEC * 1.5
+          AND DATEDIFF('second', DATA_TIMESTAMP, REFRESH_END_TIME) > TARGET_LAG_SEC * 1.5
         LIMIT 50
         """
         try:
@@ -592,11 +559,11 @@ class DynamicTableFailureDetectionCheck(Rule):
     ) -> list[Violation]:
         query = """
         SELECT DISTINCT
-            TABLE_CATALOG,
-            TABLE_SCHEMA,
+            DATABASE_NAME,
+            SCHEMA_NAME,
             NAME,
             STATE,
-            ERROR_MESSAGE
+            STATE_MESSAGE
         FROM SNOWFLAKE.ACCOUNT_USAGE.DYNAMIC_TABLE_REFRESH_HISTORY
         WHERE REFRESH_END_TIME >= DATEADD('hour', -24, CURRENT_TIMESTAMP())
           AND STATE = 'FAILED'

@@ -357,7 +357,12 @@ def scan(
             use_guided = scan_mode == "guided" or (scan_mode is None and sys.stdout.isatty())
             audit_metadata = {"billing_model": billing_model} if billing_model else {}
             audit_metadata["account_id"] = account_id
-            result = AuditResult.from_violations(violations, metadata=audit_metadata)
+            result = AuditResult.from_violations(
+                violations,
+                metadata=audit_metadata,
+                errored_rules=errored_rules,
+                total_rules_executed=len(rules),
+            )
             _emit_scan_output(
                 quiet,
                 use_guided,

@@ -9,8 +9,8 @@ Named column indices for ACCOUNT_USAGE.TAG_REFERENCES rows (TR_*):
 
 Named column indices for ACCOUNT_USAGE.TABLES rows (TC_*):
     TC_TABLE_CATALOG=0  TC_TABLE_SCHEMA=1  TC_TABLE_NAME=2  TC_TABLE_TYPE=3
-    TC_BYTES=4  TC_ROW_COUNT=5  TC_RETENTION_TIME=6  TC_ENABLE_SCHEMA_EVOLUTION=7
-    TC_CLUSTERING_KEY=8  TC_COMMENT=9
+    TC_BYTES=4  TC_ROW_COUNT=5  TC_RETENTION_TIME=6
+    TC_CLUSTERING_KEY=7  TC_COMMENT=8
 
 For SHOW command data (warehouses, users, databases, roles), use ScanContext.col()
 with the corresponding *_cols dict to look up columns by name.
@@ -49,9 +49,8 @@ TC_TABLE_TYPE = 3
 TC_BYTES = 4
 TC_ROW_COUNT = 5
 TC_RETENTION_TIME = 6
-TC_ENABLE_SCHEMA_EVOLUTION = 7
-TC_CLUSTERING_KEY = 8
-TC_COMMENT = 9
+TC_CLUSTERING_KEY = 7
+TC_COMMENT = 8
 
 
 @dataclass
@@ -77,8 +76,8 @@ class ScanContext:
     tag_refs_index: dict[tuple[str, str], dict[str, str]] | None = None
     # SNOWFLAKE.ACCOUNT_USAGE.TABLES (DELETED IS NULL)
     # cols: TABLE_CATALOG=0, TABLE_SCHEMA=1, TABLE_NAME=2, TABLE_TYPE=3,
-    #        BYTES=4, ROW_COUNT=5, RETENTION_TIME=6, ENABLE_SCHEMA_EVOLUTION=7,
-    #        CLUSTERING_KEY=8, COMMENT=9
+    #        BYTES=4, ROW_COUNT=5, RETENTION_TIME=6,
+    #        CLUSTERING_KEY=7, COMMENT=8
     tables: tuple[Row, ...] | None = None
     # Derived SSO detection: True when ≥50% of active human users have ext_authn_uid populated
     # (detected during _prefetch). None means not yet computed.

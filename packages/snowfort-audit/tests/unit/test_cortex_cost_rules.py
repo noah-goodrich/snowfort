@@ -33,6 +33,8 @@ from snowfort_audit.domain.rules.cortex_cost import (
     CortexSearchZombieServiceCheck,
     SnowflakeIntelligenceDailySpendCheck,
     SnowflakeIntelligenceGovernanceCheck,
+    _cortex_fetcher,
+    _CortexRule,
     get_cortex_rules,
 )
 from snowfort_audit.domain.scan_context import ScanContext
@@ -724,3 +726,24 @@ class TestCOST016DataProcessingErrorPropagation:
         ctx = _make_ctx_with_cached(rule.VIEW, (ExplodingRow(),))
         with pytest.raises(RuleExecutionError):
             rule.check_online(_cursor_empty(), scan_context=ctx)
+
+
+# ---------------------------------------------------------------------------
+# Regression: all Cortex views use START_TIME, not USAGE_TIME
+# ---------------------------------------------------------------------------
+
+
+def test_cortex_base_class_uses_start_time():
+    """_CortexRule.TIME_COL must be START_TIME — Cortex views have no USAGE_TIME column."""
+    assert _CortexRule.TIME_COL == "START_TIME"
+
+
+def test_cortex_fetcher_sql_uses_start_time():
+    """_cortex_fetcher must build SQL with START_TIME, not USAGE_TIME."""
+    cursor = MagicMock()
+    cursor.fetchall.return_value = ()
+    fetch = _cortex_fetcher(cursor, "CORTEX_AI_FUNCTIONS_USAGE_HISTORY")
+    fetch("CORTEX_AI_FUNCTIONS_USAGE_HISTORY", 30)
+    sql = cursor.execute.call_args[0][0]
+    assert "START_TIME" in sql
+    assert "USAGE_TIME" not in sql

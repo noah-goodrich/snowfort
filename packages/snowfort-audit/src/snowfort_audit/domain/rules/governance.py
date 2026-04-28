@@ -410,12 +410,11 @@ class InboundShareRiskCheck(Rule):
     ) -> list[Violation]:
         try:
             cursor.execute("""
-                SELECT DATABASE_NAME, SHARE_NAME, OWNER
+                SELECT DATABASE_NAME, DATABASE_OWNER, COMMENT
                 FROM SNOWFLAKE.ACCOUNT_USAGE.DATABASES
                 WHERE DELETED IS NULL
                   AND DATABASE_NAME NOT ILIKE 'SNOWFLAKE%'
-                  AND SHARE_NAME IS NOT NULL
-                  AND SHARE_NAME != ''
+                  AND TYPE = 'IMPORTED DATABASE'
                 LIMIT 50
             """)
             rows = cursor.fetchall()
@@ -425,14 +424,18 @@ class InboundShareRiskCheck(Rule):
             raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
         violations = []
         for row in rows:
-            db_name, share_name, owner = row[0], row[1], row[2]
-            # Flag if no owner is set (owner is NULL or empty)
+            db_name, owner, comment = row[0], row[1], row[2]
+            issues = []
             if not owner or str(owner).strip() in ("", "NULL"):
+                issues.append("no owner")
+            if not comment or str(comment).strip() in ("", "NULL"):
+                issues.append("no documentation comment")
+            if issues:
                 violations.append(
                     self.violation(
                         db_name,
-                        f"Inbound share '{share_name}' (database '{db_name}') has no owner "
-                        "tag. Document the provider and use case.",
+                        f"Inbound share database '{db_name}' has governance gaps: "
+                        f"{', '.join(issues)}. Document the provider and use case.",
                     )
                 )
         return violations
@@ -468,10 +471,10 @@ class OutboundShareRiskCheck(Rule):
     ) -> list[Violation]:
         try:
             cursor.execute("""
-                SELECT SHARE_NAME, OWNER, COMMENT
+                SELECT NAME, OWNER, COMMENT
                 FROM SNOWFLAKE.ACCOUNT_USAGE.SHARES
-                WHERE DELETED IS NULL
-                  AND SHARE_KIND = 'OUTBOUND'
+                WHERE DELETED_ON IS NULL
+                  AND DATABASE_NAME IS NOT NULL
                 LIMIT 50
             """)
             rows = cursor.fetchall()
