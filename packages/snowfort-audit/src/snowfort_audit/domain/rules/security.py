@@ -896,7 +896,7 @@ class CISBenchmarkScannerCheck(Rule):
             "SNOWFLAKE.TRUST_CENTER.SCANNER_PACKAGES",
         ):
             try:
-                cursor.execute(f"SELECT * FROM {view}")
+                cursor.execute(f"SELECT * FROM {view}")  # nosec B608 -- view is a hardcoded internal constant from a closed tuple
                 for row in cursor.fetchall():
                     row_str = " ".join(str(v).upper() for v in (row or []))
                     if "CIS" in row_str and ("BENCHMARK" in row_str or "SNOWFLAKE" in row_str):

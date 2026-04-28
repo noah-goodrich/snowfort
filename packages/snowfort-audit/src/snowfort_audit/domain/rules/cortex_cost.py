@@ -81,7 +81,7 @@ def _discover_sensitive_columns(cursor: SnowflakeCursorProtocol, view: str) -> t
     """
     try:
         cursor.execute(
-            "SELECT COLUMN_NAME FROM SNOWFLAKE.ACCOUNT_USAGE.COLUMNS"
+            "SELECT COLUMN_NAME FROM SNOWFLAKE.ACCOUNT_USAGE.COLUMNS"  # nosec B608 -- view is a validated internal constant, not user input
             " WHERE TABLE_CATALOG = 'SNOWFLAKE' AND TABLE_SCHEMA = 'ACCOUNT_USAGE'"
             f" AND TABLE_NAME = '{view}' AND DELETED IS NULL"
         )
@@ -103,8 +103,8 @@ def _cortex_fetcher(cursor: SnowflakeCursorProtocol, view: str, time_col: str = 
     def _fetch(v: str, window_days: int) -> tuple[Row, ...]:
         sensitive = _discover_sensitive_columns(cursor, view)
         exclude_clause = f" EXCLUDE ({', '.join(sensitive)})" if sensitive else ""
-        cursor.execute(
-            f"SELECT *{exclude_clause} FROM SNOWFLAKE.ACCOUNT_USAGE.{view}"
+        cursor.execute(  # nosec B608 -- view/time_col are validated internal constants; window_days is an int
+            f"SELECT *{exclude_clause} FROM SNOWFLAKE.ACCOUNT_USAGE.{view}"  # nosec B608
             f" WHERE {time_col} >= DATEADD('day', -{window_days}, CURRENT_TIMESTAMP())"
             " LIMIT 50000"
         )

@@ -73,8 +73,8 @@ class FutureGrantsAntiPatternCheck(Rule):
                     for row in future_rows[: self._FUTURE_LIMIT]
                 ]
             # Fallback: direct query when no ScanContext.
-            cursor.execute(
-                "SELECT GRANTEE_NAME, GRANTED_ON"
+            cursor.execute(  # nosec B608 -- _FUTURE_LIMIT is an internal int constant, not user input
+                "SELECT GRANTEE_NAME, GRANTED_ON"  # nosec B608
                 " FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_ROLES"
                 " WHERE GRANTED_ON LIKE 'FUTURE_%'"
                 " AND DELETED_ON IS NULL"

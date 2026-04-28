@@ -189,8 +189,8 @@ class ReadOnlyRoleIntegrityCheck(Rule):
                         if len(violations) >= _RO_LIMIT:
                             break
                 return violations
-            cursor.execute(
-                "SELECT GRANTEE_NAME, PRIVILEGE, GRANTED_ON, NAME"
+            cursor.execute(  # nosec B608 -- _RO_LIMIT is an internal int constant, not user input
+                "SELECT GRANTEE_NAME, PRIVILEGE, GRANTED_ON, NAME"  # nosec B608
                 " FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_ROLES"
                 " WHERE (GRANTEE_NAME LIKE '%_RO' OR GRANTEE_NAME LIKE '%_READER')"
                 " AND PRIVILEGE IN ('INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'CREATE TABLE', 'CREATE VIEW', 'OWNERSHIP')"
@@ -252,8 +252,8 @@ class ReadOnlyUserIntegrityCheck(Rule):
                         if len(violations) >= _RO_LIMIT:
                             break
                 return violations
-            cursor.execute(
-                "SELECT GRANTEE_NAME, PRIVILEGE, GRANTED_ON, NAME"
+            cursor.execute(  # nosec B608 -- _RO_LIMIT is an internal int constant, not user input
+                "SELECT GRANTEE_NAME, PRIVILEGE, GRANTED_ON, NAME"  # nosec B608
                 " FROM SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_ROLES"
                 " WHERE GRANTED_TO = 'USER'"
                 " AND (GRANTEE_NAME LIKE '%_RO' OR GRANTEE_NAME LIKE '%_READER')"
@@ -300,8 +300,8 @@ class ProgrammaticAccessTokenCheck(Rule):
         **_kw,
     ) -> list[Violation]:
         try:
-            cursor.execute(
-                "SELECT TOKEN_NAME, USER_NAME, EXPIRES_AT"
+            cursor.execute(  # nosec B608 -- _PAT_MAX_EXPIRY_DAYS is an internal int constant, not user input
+                "SELECT TOKEN_NAME, USER_NAME, EXPIRES_AT"  # nosec B608
                 " FROM SNOWFLAKE.ACCOUNT_USAGE.PROGRAMMATIC_ACCESS_TOKENS"
                 " WHERE DELETED_ON IS NULL"
                 "  AND (EXPIRES_AT IS NULL"

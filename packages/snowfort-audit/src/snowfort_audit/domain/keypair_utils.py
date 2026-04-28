@@ -28,7 +28,7 @@ def _public_key_bytes_b64(public_key) -> str:  # type: ignore[return]
     return "".join(lines)
 
 
-_TMP_ROOTS: frozenset[Path] = frozenset(p.resolve() for p in (Path("/tmp"), Path("/var/tmp")))
+_TMP_ROOTS: frozenset[Path] = frozenset(p.resolve() for p in (Path("/tmp"), Path("/var/tmp")))  # nosec B108 -- allowlist of safe temp roots used to validate paths, not write files
 
 
 def _check_key_path(path: Path) -> None:
