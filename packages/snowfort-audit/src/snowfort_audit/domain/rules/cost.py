@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import fnmatch
+import re
 from typing import TYPE_CHECKING, cast
 
 from snowfort_audit.domain.conventions import SnowfortConventions
@@ -8,6 +9,7 @@ from snowfort_audit.domain.protocols import TelemetryPort
 from snowfort_audit.domain.rule_definitions import (
     SQL_EXCLUDE_SYSTEM_AND_SNOWFORT,
     SQL_EXCLUDE_SYSTEM_AND_SNOWFORT_DB,
+    FindingCategory,
     Rule,
     RuleExecutionError,
     Severity,
@@ -143,8 +145,10 @@ class AggressiveAutoSuspendCheck(Rule):
                 cursor.execute(tag_query)
                 for row in cursor.fetchall():
                     env_tags[row[0].upper()] = row[1].upper()
-        except Exception:
-            pass
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return env_tags
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
         return env_tags
 
     def _check_warehouse_suspension(self, wh: tuple, cols: dict[str, int], env_tags: dict[str, str]) -> list[Violation]:
@@ -458,6 +462,13 @@ class HighChurnPermanentTableCheck(Rule):
             return self._conventions.thresholds.high_churn.exclude_name_patterns
         return ()
 
+    def _cdc_schema_pattern(self) -> str:
+        if self._conventions is not None:
+            return self._conventions.thresholds.high_churn.cdc_schema_pattern
+        from snowfort_audit.domain.conventions import HighChurnThresholds
+
+        return HighChurnThresholds().cdc_schema_pattern
+
     def check_online(
         self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
     ) -> list[Violation]:
@@ -479,18 +490,44 @@ class HighChurnPermanentTableCheck(Rule):
         try:
             cursor.execute(query)
             exclude_patterns = self._exclude_name_patterns()
+            cdc_pattern = self._cdc_schema_pattern()
+            cdc_regex = re.compile(cdc_pattern) if cdc_pattern else None
             violations = []
             for row in cursor.fetchall():
-                table_name: str = str(row[0]).upper()
-                if exclude_patterns and any(_name_matches_pattern(table_name, pat) for pat in exclude_patterns):
+                table_name = str(row[0])
+                if exclude_patterns and any(_name_matches_pattern(table_name.upper(), pat) for pat in exclude_patterns):
                     continue
+                # Match either database or schema portion — CDC tooling often creates its
+                # own top-level database (e.g., RAW_CDC) or a canonical schema (e.g., STAGING).
+                parts = table_name.split(".")
+                db_part = parts[0] if parts else ""
+                schema_part = parts[1] if len(parts) >= 2 else ""
+                is_cdc = cdc_regex is not None and (
+                    bool(cdc_regex.search(db_part)) or bool(cdc_regex.search(schema_part))
+                )
+                if is_cdc:
+                    category = FindingCategory.EXPECTED
+                    message = (
+                        f"Fail-safe bytes ({row[2]}) > 3x Active bytes ({row[1]}) on CDC-pattern schema. "
+                        "Convert to TRANSIENT to eliminate fail-safe cost."
+                    )
+                    remediation_instruction = (
+                        "Convert to TRANSIENT to eliminate fail-safe cost: "
+                        "CREATE OR REPLACE TRANSIENT TABLE ... AS SELECT * FROM ..."
+                    )
+                else:
+                    category = FindingCategory.ACTIONABLE
+                    message = f"Fail-safe bytes ({row[2]}) > 3x Active bytes ({row[1]}). High churn detected."
+                    remediation_instruction = None
                 violations.append(
                     Violation(
                         self.id,
                         row[0],
-                        f"Fail-safe bytes ({row[2]}) > 3x Active bytes ({row[1]}). High churn detected.",
+                        message,
                         self.severity,
                         remediation_key=self.remediation_key,
+                        remediation_instruction=remediation_instruction,
+                        category=category,
                     )
                 )
             return violations
@@ -563,10 +600,12 @@ class PerWarehouseStatementTimeoutCheck(Rule):
                 for r in cursor.fetchall():
                     try:
                         wh_overrides[str(r[0]).upper()] = int(r[1])
-                    except (TypeError, ValueError):
+                    except (TypeError, ValueError, IndexError):
                         pass
-            except Exception:
-                pass  # OBJECT_PARAMETERS unavailable; fall back to account default for all
+            except Exception as exc:
+                # Allowlisted (view unavailable) → fall back to account default for all.
+                if not is_allowlisted_sf_error(exc):
+                    raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
             for wh in warehouses:
                 wh_name = wh[name_idx]

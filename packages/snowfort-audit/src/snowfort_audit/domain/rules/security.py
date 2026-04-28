@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from snowfort_audit.domain.protocols import TelemetryPort
 from snowfort_audit.domain.rule_definitions import (
     SQL_EXCLUDE_OBJECT_NAME_SYSTEM_AND_SNOWFORT,
+    FindingCategory,
     Rule,
     RuleExecutionError,
     Severity,
@@ -17,12 +18,14 @@ from snowfort_audit.domain.rule_definitions import (
     is_allowlisted_sf_error,
 )
 from snowfort_audit.domain.rules._grants import (
+    ADMIN_ROLES,
     GRANTS_CACHE_WINDOW,
     GTR_GRANTED_ON,
     GTR_GRANTEE_NAME,
     GTR_NAME,
     GTU_ROLE,
     admin_role_user_counts,
+    admin_users_from_context,
     gtr_fetcher,
     gtu_fetcher,
 )
@@ -35,6 +38,17 @@ _GTR_NAME = GTR_NAME
 _GTU_ROLE = GTU_ROLE
 _gtr_fetcher = gtr_fetcher
 _gtu_fetcher = gtu_fetcher
+
+
+def _sso_downgrade(rule_severity: Severity, sso_enforced: bool | None) -> tuple[Severity, FindingCategory]:
+    """Return (severity, category) under org-wide SSO enforcement.
+
+    When SSO is enforced, credential-bound findings become expected outliers and
+    are downgraded to LOW + EXPECTED; otherwise the rule's default severity applies.
+    """
+    if sso_enforced:
+        return Severity.LOW, FindingCategory.EXPECTED
+    return rule_severity, FindingCategory.ACTIONABLE
 
 
 class AdminExposureCheck(Rule):
@@ -158,6 +172,7 @@ class MFAEnforcementCheck(Rule):
         **_kw,
     ) -> list[Violation]:
         """Flag users with elevated roles missing MFA."""
+        sso_enforced = scan_context.sso_enforced if scan_context is not None else None
         violations = []
         try:
             admin_users = self._get_admin_users(cursor, scan_context)
@@ -168,7 +183,7 @@ class MFAEnforcementCheck(Rule):
                 cursor.execute("SHOW USERS")
                 cols = {col[0].lower(): i for i, col in enumerate(cursor.description)}
                 users = cursor.fetchall()
-            violations.extend(self._check_mfa_status(users, cols, admin_users))
+            violations.extend(self._check_mfa_status(users, cols, admin_users, sso_enforced=sso_enforced))
         except Exception as exc:
             if is_allowlisted_sf_error(exc):
                 return []
@@ -181,36 +196,45 @@ class MFAEnforcementCheck(Rule):
         scan_context: ScanContext | None = None,
     ) -> set[str]:
         if scan_context is not None:
-            gtr = scan_context.get_or_fetch("GRANTS_TO_ROLES", _GRANTS_CACHE_WINDOW, _gtr_fetcher(cursor))
-            gtu = scan_context.get_or_fetch("GRANTS_TO_USERS", _GRANTS_CACHE_WINDOW, _gtu_fetcher(cursor))
-            role_users = admin_role_user_counts(gtr, gtu)
-            return role_users["ACCOUNTADMIN"] | role_users["SYSADMIN"] | role_users["SECURITYADMIN"]
+            return admin_users_from_context(cursor, scan_context)
         # Fallback: SHOW GRANTS OF ROLE (misses role-chain grants)
-        elevated_roles = ["ACCOUNTADMIN", "SYSADMIN", "SECURITYADMIN"]
         admin_users: set[str] = set()
-        for role in elevated_roles:
+        for role in ADMIN_ROLES:
             cursor.execute(f"SHOW GRANTS OF ROLE {role}")
             admin_users.update(row[3] for row in cursor.fetchall() if row[2] == "USER")
         return admin_users
 
-    def _check_mfa_status(self, users: list, cols: dict[str, int], admin_users: set[str]) -> list[Violation]:
-        violations = []
+    def _check_mfa_status(
+        self,
+        users: list,
+        cols: dict[str, int],
+        admin_users: set[str],
+        *,
+        sso_enforced: bool | None = None,
+    ) -> list[Violation]:
+        severity, category = _sso_downgrade(self.severity, sso_enforced)
+        idx_name = cols["name"]
+        idx_type = cols.get("type")
+        idx_mfa = cols.get("has_mfa")
+        idx_duo = cols.get("ext_authn_duo")
+        idx_bypass = cols.get("mins_to_bypass_mfa")
 
+        violations = []
         for user in users:
-            name = user[cols["name"]]
+            name = user[idx_name]
             if name not in admin_users:
                 continue
 
-            user_type = user[cols["type"]] if "type" in cols else "PERSON"
+            user_type = user[idx_type] if idx_type is not None else "PERSON"
             if user_type == "SERVICE":
                 continue
 
-            if "has_mfa" in cols:
-                mfa_enabled = str(user[cols["has_mfa"]]).lower() == "true"
+            if idx_mfa is not None:
+                mfa_enabled = str(user[idx_mfa]).lower() == "true"
             else:
-                mfa_enabled = str(user[cols["ext_authn_duo"]]).lower() == "true"
+                mfa_enabled = str(user[idx_duo]).lower() == "true"
 
-            bypass = user[cols.get("mins_to_bypass_mfa", -1)] if "mins_to_bypass_mfa" in cols else None
+            bypass = user[idx_bypass] if idx_bypass is not None else None
             bypass_active = bypass and str(bypass) != "null" and int(bypass) > 0
 
             if not mfa_enabled or bypass_active:
@@ -219,9 +243,8 @@ class MFAEnforcementCheck(Rule):
                     details.append("MFA disabled")
                 if bypass_active:
                     details.append(f"MFA Bypass active ({bypass} mins)")
-
                 msg = f"Admin '{name}' (Type: {user_type}) security gap: {', '.join(details)}"
-                violations.append(self.violation("User", msg))
+                violations.append(self.violation("User", msg, severity=severity, category=category))
         return violations
 
 
@@ -282,10 +305,10 @@ class NetworkPerimeterCheck(Rule):
             # Deep Inspection
             policy_name = res[1]
             return self._describe_and_check_policy(cursor, "Account", policy_name, effective_severity)
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.debug(f"Failed to check account network policy: {e}")
-        return []
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
 
     def _describe_and_check_policy(
         self,
@@ -313,9 +336,10 @@ class NetworkPerimeterCheck(Rule):
                                 remediation_key=self.remediation_key,
                             )
                         ]
-        except Exception as e:
-            if self.telemetry:
-                self.telemetry.debug(f"Failed to describe network policy {policy_name}: {e}")
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
         return []
 
     def _check_users(self, cursor: SnowflakeCursorProtocol) -> list[Violation]:
@@ -517,6 +541,37 @@ class ZombieUserCheck(Rule):
     NEVER_LOGGED_IN_THRESHOLD_DAYS = 30
     INACTIVE_THRESHOLD_DAYS = 90
 
+    def _admin_users(
+        self,
+        cursor: SnowflakeCursorProtocol,
+        scan_context: ScanContext | None,
+    ) -> set[str]:
+        """Resolve users with admin-equivalent roles via the shared grants cache."""
+        return admin_users_from_context(cursor, scan_context)
+
+    def _bucket(
+        self,
+        cols: dict[str, int],
+        user: tuple,
+        admin_users: set[str],
+        sso_enforced: bool | None,
+    ) -> tuple[Severity, FindingCategory]:
+        """Return (severity, category) for a zombie user based on auth type and admin status.
+
+        When SSO is not enforced, fall back to the rule's default severity for everyone;
+        bucketing only applies when the org-wide SSO mandate makes zombie outliers meaningful.
+        """
+        if not sso_enforced:
+            return self.severity, FindingCategory.ACTIONABLE
+
+        idx_pwd = cols.get("has_password")
+        has_pwd = idx_pwd is not None and str(user[idx_pwd] or "").lower() == "true"
+        if has_pwd:
+            name = user[cols["name"]]
+            return (Severity.CRITICAL if name in admin_users else Severity.HIGH), FindingCategory.ACTIONABLE
+        # No password: SSO-only or key-pair → informational (no credential-theft vector).
+        return Severity.LOW, FindingCategory.INFORMATIONAL
+
     def check_online(
         self,
         cursor: SnowflakeCursorProtocol,
@@ -525,9 +580,8 @@ class ZombieUserCheck(Rule):
         scan_context: ScanContext | None = None,
         **_kw,
     ) -> list[Violation]:
-        # B5: When SSO is enforced, zombie accounts are lower risk (no password to steal).
         sso_enforced = scan_context.sso_enforced if scan_context is not None else None
-        effective_severity = Severity.LOW if sso_enforced else self.severity
+        admin_users = self._admin_users(cursor, scan_context) if sso_enforced else set()
         violations = []
         try:
             if scan_context is not None and scan_context.users is not None:
@@ -549,6 +603,7 @@ class ZombieUserCheck(Rule):
             for user in users:
                 name = user[cols["name"]]
                 last_login = _utc(user[cols["last_success_login"]])
+                severity, category = self._bucket(cols, user, admin_users, sso_enforced)
 
                 if not last_login:
                     # Never logged in? Maybe new. Check created_on.
@@ -556,7 +611,12 @@ class ZombieUserCheck(Rule):
                     if created and (now - created).days > self.NEVER_LOGGED_IN_THRESHOLD_DAYS:
                         violations.append(
                             Violation(
-                                self.id, name, "User created >30 days ago but never logged in.", effective_severity
+                                self.id,
+                                name,
+                                "User created >30 days ago but never logged in.",
+                                severity,
+                                remediation_key=self.remediation_key,
+                                category=category,
                             )
                         )
                     continue
@@ -568,7 +628,9 @@ class ZombieUserCheck(Rule):
                             self.id,
                             name,
                             f"Zombie User: Inactive for {(now - last_login).days} days.",
-                            effective_severity,
+                            severity,
+                            remediation_key=self.remediation_key,
+                            category=category,
                         )
                     )
 
@@ -692,6 +754,8 @@ class FederatedAuthenticationCheck(Rule):
         scan_context: ScanContext | None = None,
         **_kw,
     ) -> list[Violation]:
+        sso_enforced = scan_context.sso_enforced if scan_context is not None else None
+        severity, category = _sso_downgrade(self.severity, sso_enforced)
         violations = []
         try:
             if scan_context is not None and scan_context.users is not None:
@@ -706,7 +770,7 @@ class FederatedAuthenticationCheck(Rule):
             idx_key = cols.get("has_rsa_public_key")
             idx_uid = cols.get("ext_authn_uid")
             idx_type = cols.get("type")
-            # B6: skip users already reported as zombie — they should be disabled, not re-auth'd.
+            # Zombie users are reported by SEC_007; skip here to reduce noise.
             zombie_logins = (
                 scan_context.zombie_user_logins
                 if scan_context is not None and scan_context.zombie_user_logins is not None
@@ -718,7 +782,7 @@ class FederatedAuthenticationCheck(Rule):
                 if user_type == "SERVICE":
                     continue
                 if str(name).lower() in zombie_logins:
-                    continue  # B6: zombie users are reported by SEC_007; skip here to reduce noise
+                    continue
                 has_pwd = str(user[cols["has_password"]]).lower() == "true"
                 mfa_on = idx_mfa is not None and str(user[idx_mfa] or "").lower() == "true"
                 ext_duo = idx_duo is not None and str(user[idx_duo] or "").lower() == "true"
@@ -726,7 +790,12 @@ class FederatedAuthenticationCheck(Rule):
                 has_sso = idx_uid is not None and bool(user[idx_uid])
                 if has_pwd and not mfa_on and not ext_duo and not has_key and not has_sso:
                     violations.append(
-                        self.violation("User", f"User '{name}' uses password-only auth; enable MFA/SSO or key-pair.")
+                        self.violation(
+                            "User",
+                            f"User '{name}' uses password-only auth; enable MFA/SSO or key-pair.",
+                            severity=severity,
+                            category=category,
+                        )
                     )
         except Exception as exc:
             if is_allowlisted_sf_error(exc):
@@ -750,8 +819,16 @@ class MFAAccountEnforcementCheck(Rule):
         )
 
     def check_online(
-        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+        self,
+        cursor: SnowflakeCursorProtocol,
+        _resource_name: str | None = None,
+        *,
+        scan_context: ScanContext | None = None,
+        **_kw,
     ) -> list[Violation]:
+        sso_enforced = scan_context.sso_enforced if scan_context is not None else None
+        severity, category = _sso_downgrade(self.severity, sso_enforced)
+
         try:
             cursor.execute("SHOW PARAMETERS LIKE 'REQUIRE_MFA_FOR_ALL_USERS' IN ACCOUNT")
             row = cursor.fetchone()
@@ -760,6 +837,8 @@ class MFAAccountEnforcementCheck(Rule):
                     self.violation(
                         "Account",
                         "REQUIRE_MFA_FOR_ALL_USERS parameter not found or not set; enable MFA for all users.",
+                        severity=severity,
+                        category=category,
                     )
                 ]
             # SHOW PARAMETERS: key, value, default, level, description
@@ -768,7 +847,10 @@ class MFAAccountEnforcementCheck(Rule):
                 return [
                     self.violation(
                         "Account",
-                        f"REQUIRE_MFA_FOR_ALL_USERS is not TRUE (current: {actual}); set to TRUE to enforce MFA for all users.",
+                        f"REQUIRE_MFA_FOR_ALL_USERS is not TRUE (current: {actual}); "
+                        "set to TRUE to enforce MFA for all users.",
+                        severity=severity,
+                        category=category,
                     )
                 ]
             return []

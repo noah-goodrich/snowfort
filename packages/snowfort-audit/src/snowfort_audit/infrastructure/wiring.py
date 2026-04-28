@@ -80,6 +80,7 @@ def register_all(container: "AuditContainer") -> None:
             container.get("SnowflakeClient"),
             container.get_rules(),
             container.get("TelemetryPort"),
+            conventions=load_conventions(Path.cwd()),
         )
 
     def _make_offline_scan():

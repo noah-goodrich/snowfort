@@ -4,6 +4,7 @@ import pytest
 
 from snowfort_audit.domain.financials import FinancialEvaluator
 from snowfort_audit.domain.models import PricingConfig
+from snowfort_audit.domain.rule_definitions import RuleExecutionError
 from snowfort_audit.domain.rules.workload import SpillingMemoryCheck, WorkloadEfficiencyCheck
 
 
@@ -62,3 +63,29 @@ class TestWorkloadRules:
         violations = rule.check_online(mock_cursor)
         assert len(violations) == 1
         assert "SNOWPARK-OPTIMIZED" in violations[0].message
+
+
+# ---------------------------------------------------------------------------
+# AC-1: SpillingMemoryCheck must raise RuleExecutionError, not swallow
+# ---------------------------------------------------------------------------
+
+
+class TestSpillingMemoryCheckErrorPropagation:
+    def test_unexpected_error_raises_rule_execution_error(self):
+        """Non-SF error in check_online must raise RuleExecutionError."""
+        evaluator = FinancialEvaluator(PricingConfig())
+        rule = SpillingMemoryCheck(evaluator)
+        c = MagicMock()
+        c.execute.side_effect = RuntimeError("unexpected query failure")
+        with pytest.raises(RuleExecutionError):
+            rule.check_online(c)
+
+    def test_allowlisted_error_returns_empty(self):
+        """Allowlisted SF error (errno 2003) → []."""
+        evaluator = FinancialEvaluator(PricingConfig())
+        rule = SpillingMemoryCheck(evaluator)
+        c = MagicMock()
+        err = Exception("Object not found")
+        err.errno = 2003
+        c.execute.side_effect = err
+        assert rule.check_online(c) == []

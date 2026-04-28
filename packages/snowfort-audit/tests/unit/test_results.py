@@ -9,6 +9,7 @@ from snowfort_audit.domain.results import (
 )
 from snowfort_audit.domain.rule_definitions import (
     PILLAR_DISPLAY_ORDER,
+    FindingCategory,
     Severity,
     Violation,
     pillar_from_rule_id,
@@ -224,3 +225,81 @@ def test_pillar_from_rule_id_and_display_order():
     assert pillar_from_rule_id("UNKNOWN_99") == "Other"
     five_and_governance = {"Security", "Cost", "Reliability", "Performance", "Operations", "Governance"}
     assert set(PILLAR_DISPLAY_ORDER) >= five_and_governance
+
+
+# ---------------------------------------------------------------------------
+# AC-4: Adjusted scoring — ACTIONABLE-only score + category counts
+# ---------------------------------------------------------------------------
+
+
+def test_adjusted_score_all_expected():
+    """100 EXPECTED + 5 ACTIONABLE → adjusted_score reflects only the 5."""
+    expected = [
+        Violation("COST_012", "T", "CDC", Severity.MEDIUM, pillar="Cost", category=FindingCategory.EXPECTED)
+    ] * 100
+    actionable = [
+        Violation("SEC_001", "A", "admin", Severity.CRITICAL, pillar="Security", category=FindingCategory.ACTIONABLE)
+    ] * 5
+    sc = AuditScorecard.from_violations(expected + actionable)
+    # compliance_score reflects all 105 violations
+    assert sc.total_violations == 105
+    # adjusted_score only reflects the 5 ACTIONABLE ones
+    assert sc.adjusted_score > sc.compliance_score, (
+        f"adjusted ({sc.adjusted_score}) should be higher than raw ({sc.compliance_score}) "
+        "because 100 EXPECTED violations are excluded"
+    )
+
+
+def test_category_counts():
+    """from_violations correctly counts actionable, expected, informational."""
+    violations = [
+        Violation("SEC_001", "A", "m", Severity.CRITICAL, category=FindingCategory.ACTIONABLE),
+        Violation("SEC_002", "A", "m", Severity.HIGH, category=FindingCategory.ACTIONABLE),
+        Violation("COST_012", "T", "m", Severity.MEDIUM, category=FindingCategory.EXPECTED),
+        Violation("COST_012", "T", "m", Severity.MEDIUM, category=FindingCategory.EXPECTED),
+        Violation("COST_012", "T", "m", Severity.MEDIUM, category=FindingCategory.EXPECTED),
+        Violation("SEC_007", "U", "m", Severity.LOW, category=FindingCategory.INFORMATIONAL),
+    ]
+    sc = AuditScorecard.from_violations(violations)
+    assert sc.actionable_count == 2
+    assert sc.expected_count == 3
+    assert sc.informational_count == 1
+    assert sc.total_violations == 6
+
+
+def test_default_category_identical_scores():
+    """Violations without explicit category (default ACTIONABLE) produce
+    identical raw and adjusted scores."""
+    violations = [
+        Violation("SEC_001", "A", "m", Severity.CRITICAL, pillar="Security"),
+        Violation("COST_001", "W", "m", Severity.HIGH, pillar="Cost"),
+    ]
+    sc = AuditScorecard.from_violations(violations)
+    assert sc.compliance_score == sc.adjusted_score
+    assert sc.actionable_count == 2
+    assert sc.expected_count == 0
+    assert sc.informational_count == 0
+
+
+def test_adjusted_grade():
+    """adjusted_grade is derived from adjusted_score, not compliance_score."""
+    # Many EXPECTED violations → low compliance_score, high adjusted_score
+    expected = [
+        Violation("SEC_003", "A", "pwd", Severity.HIGH, pillar="Security", category=FindingCategory.EXPECTED)
+    ] * 50
+    sc = AuditScorecard.from_violations(expected)
+    # No ACTIONABLE violations → adjusted_score should be 100
+    assert sc.adjusted_score == 100
+    assert sc.adjusted_grade == "A"
+    # Raw score should be significantly lower
+    assert sc.compliance_score < 100
+
+
+def test_empty_violations_adjusted():
+    """Empty violations → adjusted_score = 100, grade A, all counts zero."""
+    sc = AuditScorecard.from_violations([])
+    assert sc.adjusted_score == 100
+    assert sc.adjusted_grade == "A"
+    assert sc.actionable_count == 0
+    assert sc.expected_count == 0
+    assert sc.informational_count == 0

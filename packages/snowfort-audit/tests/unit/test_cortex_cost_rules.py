@@ -694,3 +694,33 @@ def test_get_cortex_rules_ids_in_range():
     for rule in rules:
         num = int(rule.id.split("_")[1])
         assert 16 <= num <= 33, f"Rule {rule.id} out of expected range"
+
+
+# ---------------------------------------------------------------------------
+# AC-1: COST_016 data-processing path must raise RuleExecutionError, not swallow
+# ---------------------------------------------------------------------------
+
+
+class TestCOST016DataProcessingErrorPropagation:
+    """The try/except around the credit_by_day aggregation loop (line ~196)
+    must NOT silently return [].  Non-allowlisted errors must raise
+    RuleExecutionError so they appear as ERRORED findings."""
+
+    def test_data_processing_error_raises_rule_execution_error(self):
+        """A RuntimeError during credit aggregation must raise RuleExecutionError."""
+        rule = CortexAIFunctionCreditBudgetCheck()
+
+        class ExplodingRow:
+            def __getitem__(self, idx):
+                if isinstance(idx, slice):
+                    raise RuntimeError("unexpected aggregation error")
+                if idx == 0:
+                    return "2026-04-01T00:00:00"
+                return "x"
+
+            def __len__(self):
+                return 4
+
+        ctx = _make_ctx_with_cached(rule.VIEW, (ExplodingRow(),))
+        with pytest.raises(RuleExecutionError):
+            rule.check_online(_cursor_empty(), scan_context=ctx)

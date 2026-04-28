@@ -15,6 +15,7 @@ from snowfort_audit.domain.rules.op_excellence import (
     NotificationIntegrationCheck,
     ObjectCommentCheck,
     ObservabilityInfrastructureCheck,
+    PermifrostDriftCheck,
     ResourceMonitorCheck,
 )
 
@@ -241,3 +242,31 @@ def test_dmf_exc():
     c.execute.side_effect = RuntimeError()
     with pytest.raises(RuleExecutionError):
         DataMetricFunctionsCoverageCheck().check_online(c)
+
+
+# ---------------------------------------------------------------------------
+# AC-1: PermifrostDriftCheck._actual_user_roles must raise, not swallow
+# ---------------------------------------------------------------------------
+
+
+class TestPermifrostDriftCheckErrorPropagation:
+    def test_actual_user_roles_unexpected_error_raises(self):
+        """Non-SF error in _actual_user_roles must raise RuleExecutionError."""
+        from pathlib import Path
+
+        rule = PermifrostDriftCheck(spec_path=Path("/dev/null"))
+        c = MagicMock()
+        c.execute.side_effect = RuntimeError("unexpected grants failure")
+        with pytest.raises(RuleExecutionError):
+            rule._actual_user_roles(c)
+
+    def test_actual_user_roles_allowlisted_error_returns_none(self):
+        """Allowlisted SF error (errno 2003) in _actual_user_roles → None."""
+        from pathlib import Path
+
+        rule = PermifrostDriftCheck(spec_path=Path("/dev/null"))
+        c = MagicMock()
+        err = Exception("Object not found")
+        err.errno = 2003
+        c.execute.side_effect = err
+        assert rule._actual_user_roles(c) is None

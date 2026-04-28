@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from snowfort_audit._vendor.protocols import SnowflakeCursorProtocol, SnowflakeQueryProtocol
+from snowfort_audit.domain.conventions import SnowfortConventions
 from snowfort_audit.domain.protocols import TelemetryPort
 from snowfort_audit.domain.scan_context import ScanContext
 
@@ -62,10 +63,12 @@ def _is_zombie_user(user: Any, cols: dict[str, int], now: datetime) -> bool:
 def _derive_sso_and_zombies(
     users: tuple[Any, ...],
     cols: dict[str, int],
+    sso_threshold: float = 0.5,
 ) -> tuple[bool, set[str]]:
     """Compute sso_enforced flag and zombie login set from prefetched SHOW USERS rows.
 
-    sso_enforced is True when ≥50% of non-SERVICE users have ext_authn_uid set.
+    sso_enforced is True when the fraction of non-SERVICE users with ext_authn_uid
+    set meets or exceeds `sso_threshold` (default 0.5).
     zombie_logins contains lowercase usernames inactive >90 days or never-logged-in >30 days.
     """
     idx_uid = cols.get("ext_authn_uid")
@@ -84,7 +87,7 @@ def _derive_sso_and_zombies(
             sso_count += 1
         if idx_name is not None and _is_zombie_user(user, cols, now):
             zombie_logins.add(str(user[idx_name]).lower())
-    sso_enforced = (sso_count / human_total >= 0.5) if human_total > 0 else False
+    sso_enforced = (sso_count / human_total >= sso_threshold) if human_total > 0 else False
     return sso_enforced, zombie_logins
 
 
@@ -131,25 +134,26 @@ def _check_online_uses_resource_name(rule: Rule) -> bool:
     return _class_uses_resource_name(type(rule))
 
 
+# (rule_id, error_message)
+RuleError = tuple[str, str]
+
+
 def _check_views_chunk(
     views_chunk: list[tuple[str, str]],
     rules_for_view: list[Rule],
-) -> list[Violation]:
+) -> tuple[list[Violation], list[RuleError]]:
     """Run view-scoped rules against a chunk of (view_name, ddl) pairs. Pure Python, no cursor."""
     out: list[Violation] = []
+    errors: list[RuleError] = []
     for view_name, ddl in views_chunk:
         for rule in rules_for_view:
             try:
                 found = rule.check_static(ddl, view_name)
                 if found:
                     out.extend(found)
-            except Exception:
-                pass
-    return out
-
-
-# (rule_id, error_message)
-RuleError = tuple[str, str]
+            except Exception as e:
+                errors.append((rule.id, f"{view_name}: {e}"))
+    return out, errors
 
 
 def _run_rules_chunk(
@@ -182,10 +186,17 @@ class OnlineScanUseCase:
     Supports parallel execution with workers > 1 (multiple Snowflake connections).
     """
 
-    def __init__(self, gateway: SnowflakeQueryProtocol, rules: list[Rule], telemetry: TelemetryPort):
+    def __init__(
+        self,
+        gateway: SnowflakeQueryProtocol,
+        rules: list[Rule],
+        telemetry: TelemetryPort,
+        conventions: SnowfortConventions | None = None,
+    ):
         self.gateway = gateway
         self.rules = rules
         self.telemetry = telemetry
+        self.conventions = conventions or SnowfortConventions()
         self.profile_timings: list[RuleTiming] = []
         self.errored_rules: list[str] = []
 
@@ -341,6 +352,14 @@ class OnlineScanUseCase:
             self.telemetry.debug(f"  ACCOUNT_USAGE.VIEWS unavailable, falling back to per-view GET_DDL: {e}")
             return None
 
+    def _record_rule_errors(self, errors: list[RuleError], seen: set[str]) -> None:
+        """Log each rule error and dedupe into self.errored_rules via a running `seen` set."""
+        for rule_id, err_msg in errors:
+            self.telemetry.error(f"Rule execution failed ({rule_id}): {err_msg}")
+            if rule_id not in seen:
+                seen.add(rule_id)
+                self.errored_rules.append(rule_id)
+
     def _run_view_phase_batch(
         self,
         cur: SnowflakeCursorProtocol,
@@ -369,10 +388,13 @@ class OnlineScanUseCase:
             t0_all = time.perf_counter()
             chunk_size = max(1, n_views // workers)
             chunks = [views_list[i : i + chunk_size] for i in range(0, n_views, chunk_size)]
+            errored_seen: set[str] = set(self.errored_rules)
             with ThreadPoolExecutor(max_workers=min(workers, len(chunks))) as pool:
                 futures = [pool.submit(_check_views_chunk, chunk, rules_for_view) for chunk in chunks]
                 for fut in as_completed(futures):
-                    violations.extend(fut.result())
+                    chunk_violations, chunk_errors = fut.result()
+                    violations.extend(chunk_violations)
+                    self._record_rule_errors(chunk_errors, errored_seen)
             if profile:
                 timings.append(("VIEW_PHASE", "Batch DDL (parallel)", time.perf_counter() - t0_all))
         else:
@@ -410,7 +432,8 @@ class OnlineScanUseCase:
         try:
             cur.execute("SELECT DATABASE_NAME FROM SNOWFLAKE.ACCOUNT_USAGE.DATABASES WHERE DELETED IS NULL")
             active_dbs_upper: frozenset[str] = frozenset(str(r[0]).upper() for r in cur.fetchall())
-        except Exception:
+        except Exception as e:
+            self.telemetry.warning(f"Could not prefetch active databases (continuing without filter): {e}")
             active_dbs_upper = frozenset()
         cur.execute("SHOW VIEWS IN ACCOUNT")
         all_rows = cur.fetchall()
@@ -516,7 +539,9 @@ class OnlineScanUseCase:
 
         # Derive sso_enforced and zombie_user_logins from the prefetched user list.
         if ctx.users is not None and ctx.users_cols:
-            sso_enforced, zombie_logins = _derive_sso_and_zombies(ctx.users, ctx.users_cols)
+            sso_enforced, zombie_logins = _derive_sso_and_zombies(
+                ctx.users, ctx.users_cols, sso_threshold=self.conventions.security.sso_threshold
+            )
             object.__setattr__(ctx, "sso_enforced", sso_enforced)
             object.__setattr__(ctx, "zombie_user_logins", frozenset(zombie_logins))
             self.telemetry.debug(
