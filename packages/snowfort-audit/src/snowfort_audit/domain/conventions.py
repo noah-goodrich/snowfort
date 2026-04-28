@@ -74,6 +74,36 @@ class NetworkPerimeterThresholds:
 
 
 @dataclass(frozen=True)
+class WarehouseSizingThresholds:
+    """Thresholds for warehouse utilization / consolidation / sizing rules (Directive B)."""
+
+    # P50 running-load ratio below which a warehouse is considered underutilized.
+    utilization_underused_p50: float = 0.10
+    # P50 queued-load ratio above which a warehouse is considered overloaded.
+    utilization_overloaded_p50_queue: float = 0.20
+    # P50 query duration (seconds) below which queries are classified as short / interactive.
+    workload_split_short_p50_seconds: float = 5.0
+    # P50 query duration (seconds) above which queries are classified as long / batch.
+    workload_split_long_p50_seconds: float = 60.0
+    # Warehouses with zero queries in this many days are flagged as dormant.
+    dormant_days: int = 30
+    # Default lookback window (days) for sizing analysis.
+    lookback_days: int = 30
+
+
+@dataclass(frozen=True)
+class StorageThresholds:
+    """Thresholds for storage-optimization rules (Directive B)."""
+
+    cold_table_min_bytes: int = 107_374_182_400  # 100 GB
+    cold_table_max_queries_per_week: int = 1
+    clone_stale_days: int = 90
+    clone_max_per_schema: int = 5
+    excessive_retention_min_bytes: int = 1_099_511_627_776  # 1 TB
+    excessive_retention_min_days: int = 7
+
+
+@dataclass(frozen=True)
 class CortexThresholds:
     """Per-feature cost thresholds for Cortex governance rules (COST_016–COST_033)."""
 
@@ -98,6 +128,8 @@ class RuleThresholdConventions:
     mandatory_tagging: MandatoryTaggingThresholds = field(default_factory=MandatoryTaggingThresholds)
     network_perimeter: NetworkPerimeterThresholds = field(default_factory=NetworkPerimeterThresholds)
     cortex: CortexThresholds = field(default_factory=CortexThresholds)
+    warehouse_sizing: WarehouseSizingThresholds = field(default_factory=WarehouseSizingThresholds)
+    storage: StorageThresholds = field(default_factory=StorageThresholds)
 
 
 @dataclass(frozen=True)
