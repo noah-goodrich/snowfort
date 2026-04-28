@@ -28,11 +28,15 @@ def _public_key_bytes_b64(public_key) -> str:  # type: ignore[return]
     return "".join(lines)
 
 
+_TMP_ROOTS: frozenset[Path] = frozenset(p.resolve() for p in (Path("/tmp"), Path("/var/tmp")))
+
+
 def _check_key_path(path: Path) -> None:
     """Raise ValueError if path is insecure or already exists with bad perms."""
     resolved = path.resolve()
     # Block /tmp and /var/tmp to prevent world-readable key leaks.
-    if str(resolved).startswith("/tmp") or str(resolved).startswith("/var/tmp"):
+    # Resolve the tmp roots so symlinks (e.g. macOS /tmp -> /private/tmp) are handled.
+    if any(resolved == r or r in resolved.parents for r in _TMP_ROOTS):
         raise ValueError(
             f"Private key path '{path}' is inside /tmp. "
             "Choose a path within your home directory, e.g. ~/.snowflake/rsa_key.p8"
