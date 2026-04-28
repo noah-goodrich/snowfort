@@ -13,11 +13,14 @@ from snowfort_audit.domain.conventions import (
 from snowfort_audit.domain.rule_definitions import FindingCategory, RuleExecutionError, Severity
 from snowfort_audit.domain.rules.sizing import (
     AutoSuspendOptimizationCheck,
+    CloneSprawlCheck,
+    ColdStorageMigrationCheck,
     ConsolidationCandidatesCheck,
     DormantWarehouseCheck,
     ExcessiveTimeTravelRetentionCheck,
     QueryDurationAnomalyCheck,
     SavingsProjectionCheck,
+    StaleTableStorageImpactCheck,
     ThreeLayerUtilizationCheck,
     WorkloadIsolationCheck,
 )
@@ -380,3 +383,152 @@ def test_cost035_error_raises_rule_execution_error():
     c.execute.side_effect = RuntimeError("metering unavailable")
     with pytest.raises(RuleExecutionError):
         SavingsProjectionCheck().check_online(c)
+
+
+# ── COST_038: Clone Sprawl ────────────────────────────────────────────────────
+
+
+def test_cost038_flags_schema_with_too_many_clones():
+    c = MagicMock()
+    # (TABLE_CATALOG, TABLE_SCHEMA, clone_count, oldest_clone_age_days)
+    c.fetchall.return_value = [("DB", "PUBLIC", 8, 30)]
+    violations = CloneSprawlCheck().check_online(c)
+    assert len(violations) == 1
+    assert violations[0].severity == Severity.LOW
+    assert violations[0].category == FindingCategory.ACTIONABLE
+    assert "8" in violations[0].message
+
+
+def test_cost038_flags_stale_clone():
+    c = MagicMock()
+    # Only 2 clones but oldest is 120 days (> 90 default)
+    c.fetchall.return_value = [("DB", "STAGING", 2, 120)]
+    violations = CloneSprawlCheck().check_online(c)
+    assert len(violations) == 1
+    assert "120" in violations[0].message
+
+
+def test_cost038_skips_healthy_schema():
+    c = MagicMock()
+    # 3 clones, oldest is 30 days — both below thresholds
+    c.fetchall.return_value = [("DB", "PUBLIC", 3, 30)]
+    assert CloneSprawlCheck().check_online(c) == []
+
+
+def test_cost038_convention_overrides():
+    conv = SnowfortConventions(thresholds=RuleThresholdConventions(storage=StorageThresholds(clone_max_per_schema=2)))
+    c = MagicMock()
+    # 3 clones — below default (5) but above override (2)
+    c.fetchall.return_value = [("DB", "PUBLIC", 3, 10)]
+    assert len(CloneSprawlCheck(conventions=conv).check_online(c)) == 1
+
+
+def test_cost038_error_raises_rule_execution_error():
+    c = MagicMock()
+    c.execute.side_effect = RuntimeError("access denied")
+    with pytest.raises(RuleExecutionError):
+        CloneSprawlCheck().check_online(c)
+
+
+# ── COST_039: Cold Storage Migration ──────────────────────────────────────────
+
+
+def test_cost039_flags_cold_large_table():
+    c = MagicMock()
+    # (qualified_name, active_bytes, query_count_7d, clustering_key)
+    c.fetchall.return_value = [("DB.SCH.HUGE", 200 * 1024**3, 0, None)]
+    violations = ColdStorageMigrationCheck().check_online(c)
+    assert len(violations) == 1
+    assert violations[0].severity == Severity.MEDIUM
+    assert violations[0].category == FindingCategory.INFORMATIONAL
+    assert "HUGE" in violations[0].message
+
+
+def test_cost039_skips_small_table():
+    c = MagicMock()
+    # 50 GB — below default 100 GB threshold
+    c.fetchall.return_value = [("DB.SCH.SMALL", 50 * 1024**3, 0, None)]
+    assert ColdStorageMigrationCheck().check_online(c) == []
+
+
+def test_cost039_skips_actively_queried_table():
+    c = MagicMock()
+    # 200 GB but 5 queries/week — above threshold
+    c.fetchall.return_value = [("DB.SCH.HOT", 200 * 1024**3, 5, None)]
+    assert ColdStorageMigrationCheck().check_online(c) == []
+
+
+def test_cost039_skips_clustered_table():
+    c = MagicMock()
+    # 200 GB, 0 queries, but has a clustering key
+    c.fetchall.return_value = [("DB.SCH.CLUSTERED", 200 * 1024**3, 0, "LINEAR(col1)")]
+    assert ColdStorageMigrationCheck().check_online(c) == []
+
+
+def test_cost039_convention_overrides():
+    conv = SnowfortConventions(
+        thresholds=RuleThresholdConventions(
+            storage=StorageThresholds(cold_table_min_bytes=50 * 1024**3)  # 50 GB
+        )
+    )
+    c = MagicMock()
+    # 80 GB — above overridden threshold (50 GB), below default (100 GB)
+    c.fetchall.return_value = [("DB.SCH.MED", 80 * 1024**3, 0, None)]
+    assert len(ColdStorageMigrationCheck(conventions=conv).check_online(c)) == 1
+
+
+def test_cost039_error_raises_rule_execution_error():
+    c = MagicMock()
+    c.execute.side_effect = RuntimeError("boom")
+    with pytest.raises(RuleExecutionError):
+        ColdStorageMigrationCheck().check_online(c)
+
+
+# ── COST_040: Stale Table Storage Impact ──────────────────────────────────────
+
+
+def test_cost040_ranks_stale_tables_by_impact():
+    c = MagicMock()
+    # (qualified_name, active_bytes, days_idle, impact_score)
+    c.fetchall.return_value = [
+        ("DB.SCH.BIG_OLD", 500 * 1024**3, 180, 500 * 1024**3 * 180),
+        ("DB.SCH.SMALL_OLD", 10 * 1024**3, 365, 10 * 1024**3 * 365),
+    ]
+    violations = StaleTableStorageImpactCheck().check_online(c)
+    assert len(violations) == 2
+    assert violations[0].severity == Severity.LOW
+    assert violations[0].category == FindingCategory.INFORMATIONAL
+    assert "BIG_OLD" in violations[0].message
+
+
+def test_cost040_no_stale_tables():
+    c = MagicMock()
+    c.fetchall.return_value = []
+    assert StaleTableStorageImpactCheck().check_online(c) == []
+
+
+def test_cost040_skips_recently_accessed():
+    c = MagicMock()
+    # days_idle = 0 → recently accessed, impact score = 0
+    c.fetchall.return_value = [("DB.SCH.FRESH", 100 * 1024**3, 0, 0)]
+    violations = StaleTableStorageImpactCheck().check_online(c)
+    # days_idle=0 means no staleness to report
+    assert violations == []
+
+
+def test_cost040_convention_overrides():
+    # StaleTableStorageImpactCheck doesn't have a direct threshold but uses
+    # StorageThresholds — verify it can be constructed with custom conventions.
+    conv = SnowfortConventions(
+        thresholds=RuleThresholdConventions(storage=StorageThresholds(cold_table_min_bytes=50 * 1024**3))
+    )
+    c = MagicMock()
+    c.fetchall.return_value = [("DB.SCH.T", 200 * 1024**3, 90, 200 * 1024**3 * 90)]
+    assert len(StaleTableStorageImpactCheck(conventions=conv).check_online(c)) == 1
+
+
+def test_cost040_error_raises_rule_execution_error():
+    c = MagicMock()
+    c.execute.side_effect = RuntimeError("timeout")
+    with pytest.raises(RuleExecutionError):
+        StaleTableStorageImpactCheck().check_online(c)
