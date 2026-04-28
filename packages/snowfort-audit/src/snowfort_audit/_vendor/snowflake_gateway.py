@@ -1,5 +1,6 @@
 """Snowflake gateway using connector only (no snowflake.core) (vendored)."""
 
+import os
 from typing import Any
 from urllib.parse import urlparse
 
@@ -54,12 +55,22 @@ class SnowflakeGateway(SnowflakeQueryProtocol):
                 "private_key_path": (
                     getattr(auth, "private_key_path", None) if auth else getattr(self.options, "private_key_path", None)
                 ),
+                "token": getattr(auth, "token", None) if auth else getattr(self.options, "token", None),
             }
         connection_params = {k: v for k, v in params.items() if v is not None}
         if "authenticator" not in connection_params:
             connection_params["authenticator"] = "externalbrowser"
         if "role" not in connection_params:
             connection_params["role"] = "ACCOUNTADMIN"
+        # PAT auth: ensure token is in params for pool connections (env var alone only works on
+        # the first connect() call; subsequent connect() calls for worker pool need it explicit).
+        if (
+            connection_params.get("authenticator", "").lower() == "programmatic_access_token"
+            and "token" not in connection_params
+        ):
+            env_token = os.environ.get("SNOWFLAKE_TOKEN")
+            if env_token:
+                connection_params["token"] = env_token
         return connection_params
 
     def connect(self) -> None:

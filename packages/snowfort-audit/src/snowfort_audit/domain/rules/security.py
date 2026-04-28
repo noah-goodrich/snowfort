@@ -136,7 +136,11 @@ class AdminExposureCheck(Rule):
                     ("SYSADMIN", lambda c: self._check_generic_admin("SYSADMIN", c)),
                 ]:
                     cursor.execute(f"SHOW GRANTS OF ROLE {role}")
-                    users_with_role = [row[3] for row in cursor.fetchall() if row[2] == "USER"]
+                    users_with_role = []
+                    for row in cursor.fetchall():
+                        granted_to, grantee_name = row[2], row[3]
+                        if granted_to == "USER":
+                            users_with_role.append(grantee_name)
                     violations.extend(check_fn(len(users_with_role)))
         except Exception as exc:
             if is_allowlisted_sf_error(exc):
@@ -201,7 +205,10 @@ class MFAEnforcementCheck(Rule):
         admin_users: set[str] = set()
         for role in ADMIN_ROLES:
             cursor.execute(f"SHOW GRANTS OF ROLE {role}")
-            admin_users.update(row[3] for row in cursor.fetchall() if row[2] == "USER")
+            for row in cursor.fetchall():
+                granted_to, grantee_name = row[2], row[3]
+                if granted_to == "USER":
+                    admin_users.add(grantee_name)
         return admin_users
 
     def _check_mfa_status(
@@ -322,11 +329,10 @@ class NetworkPerimeterCheck(Rule):
         try:
             cursor.execute(f"DESCRIBE NETWORK POLICY {policy_name}")
             rows = cursor.fetchall()
-            # Columns: name, value, default, level, description
             for row in rows:
-                if row[0].upper() == "ALLOWED_IP_LIST":
-                    allow_list = row[1]
-                    if "0.0.0.0/0" in allow_list:
+                param_name, param_value = row[0], row[1]
+                if param_name.upper() == "ALLOWED_IP_LIST":
+                    if "0.0.0.0/0" in param_value:
                         return [
                             Violation(
                                 self.id,
@@ -841,8 +847,8 @@ class MFAAccountEnforcementCheck(Rule):
                         category=category,
                     )
                 ]
-            # SHOW PARAMETERS: key, value, default, level, description
-            actual = str(row[1]).strip().upper() if len(row) > 1 else ""
+            param_value = row[1] if len(row) > 1 else None
+            actual = str(param_value).strip().upper() if param_value is not None else ""
             if actual != "TRUE":
                 return [
                     self.violation(
@@ -972,8 +978,8 @@ class DataExfiltrationPreventionCheck(Rule):
                 row = cursor.fetchone()
                 if not row:
                     continue
-                # SHOW PARAMETERS: key, value, default, level, description
-                actual = str(row[1]).strip().upper() if len(row) > 1 else ""
+                param_value = row[1] if len(row) > 1 else None
+                actual = str(param_value).strip().upper() if param_value is not None else ""
                 if actual != expected_val.upper():
                     violations.append(
                         self.violation("Account", f"Data exfiltration: {msg} (current value: {param_name}={actual}).")
@@ -1058,13 +1064,16 @@ class DataMaskingPolicyCoverageCheck(Rule):
         )
         try:
             cursor.execute(query)
-            return [
-                self.violation(
-                    f"{row[0]}.{row[1]}",
-                    f"Column has sensitivity tag '{row[2]}' but no masking policy applied.",
+            violations = []
+            for row in cursor.fetchall():
+                obj_name, column_name, tag_name = row[0], row[1], row[2]
+                violations.append(
+                    self.violation(
+                        f"{obj_name}.{column_name}",
+                        f"Column has sensitivity tag '{tag_name}' but no masking policy applied.",
+                    )
                 )
-                for row in cursor.fetchall()
-            ]
+            return violations
         except Exception as exc:
             if is_allowlisted_sf_error(exc):
                 return []
@@ -1109,13 +1118,13 @@ class RowAccessPolicyCoverageCheck(Rule):
         )
         try:
             cursor.execute(query)
-            return [
-                self.violation(
-                    row[0],
-                    "Table has sensitivity-tagged columns but no row access policy.",
+            violations = []
+            for row in cursor.fetchall():
+                (obj_name,) = row
+                violations.append(
+                    self.violation(obj_name, "Table has sensitivity-tagged columns but no row access policy.")
                 )
-                for row in cursor.fetchall()
-            ]
+            return violations
         except Exception as exc:
             if is_allowlisted_sf_error(exc):
                 return []
@@ -1157,13 +1166,16 @@ class SSOCoverageCheck(Rule):
             if total == 0 or sso_users / total < self.SSO_MAJORITY_THRESHOLD:
                 return []
             non_sso = [r for r in rows if not r[2] or not str(r[2]).strip()]
-            return [
-                self.violation(
-                    row[0],
-                    f"User created outside SSO (login: {row[1]}); account appears SSO-enabled ({sso_users}/{total} users use SSO).",
+            violations = []
+            for row in non_sso[:30]:
+                name, login_name = row[0], row[1]
+                violations.append(
+                    self.violation(
+                        name,
+                        f"User created outside SSO (login: {login_name}); account appears SSO-enabled ({sso_users}/{total} users use SSO).",
+                    )
                 )
-                for row in non_sso[:30]
-            ]
+            return violations
         except Exception as exc:
             if is_allowlisted_sf_error(exc):
                 return []

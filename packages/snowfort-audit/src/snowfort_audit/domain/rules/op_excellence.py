@@ -246,11 +246,11 @@ class MandatoryTaggingCheck(Rule):
                     tagged[(domain, obj_name)] = set(tags.keys())
         elif scan_context is not None and scan_context.tag_refs is not None:
             for row in scan_context.tag_refs:
-                domain = str(row[0]).upper()
+                domain = str(row[TR_DOMAIN]).upper()
                 if domain not in ("WAREHOUSE", "DATABASE"):
                     continue
-                key: tuple[str, str] = (domain, str(row[1]).upper())
-                tagged.setdefault(key, set()).add(str(row[2]).upper())
+                key: tuple[str, str] = (domain, str(row[TR_OBJECT_NAME]).upper())
+                tagged.setdefault(key, set()).add(str(row[TR_TAG_NAME]).upper())
         else:
             cursor.execute(
                 "SELECT DOMAIN, OBJECT_NAME, TAG_NAME"
@@ -258,8 +258,9 @@ class MandatoryTaggingCheck(Rule):
                 " WHERE DOMAIN IN ('WAREHOUSE', 'DATABASE') AND OBJECT_DELETED IS NULL"
             )
             for row in cursor.fetchall():
-                key = (row[0].upper(), row[1].upper())
-                tagged.setdefault(key, set()).add(row[2].upper())
+                domain, obj_name, tag_name = row[0], row[1], row[2]
+                key = (domain.upper(), obj_name.upper())
+                tagged.setdefault(key, set()).add(tag_name.upper())
         return tagged
 
     def _validate_tags(
@@ -486,8 +487,9 @@ class IaCDriftReadinessCheck(Rule):
                 " WHERE DOMAIN IN ('WAREHOUSE', 'DATABASE') AND OBJECT_DELETED IS NULL"
             )
             for row in cursor.fetchall():
-                if (row[2] or "").upper() in self.managed_by_tag_names:
-                    tagged.add((row[0], row[1]))
+                domain, obj_name, tag_name = row[0], row[1], row[2]
+                if (tag_name or "").upper() in self.managed_by_tag_names:
+                    tagged.add((domain, obj_name))
         return tagged
 
     def _count_warehouses(self, cursor: SnowflakeCursorProtocol, scan_context: ScanContext | None) -> int:
@@ -578,13 +580,16 @@ class AlertExecutionReliabilityCheck(Rule):
         """
         try:
             cursor.execute(query)
-            return [
-                self.violation(
-                    f"{row[1]}.{row[2]}.{row[0]}",
-                    f"Alert had {row[3]} error(s) out of {row[4]} runs in last {lookback} days; investigate.",
+            violations = []
+            for row in cursor.fetchall():
+                name, db, schema, err_count, total_runs = row[0], row[1], row[2], row[3], row[4]
+                violations.append(
+                    self.violation(
+                        f"{db}.{schema}.{name}",
+                        f"Alert had {err_count} error(s) out of {total_runs} runs in last {lookback} days; investigate.",
+                    )
                 )
-                for row in cursor.fetchall()
-            ]
+            return violations
         except Exception as exc:
             if is_allowlisted_sf_error(exc):
                 return []
@@ -755,7 +760,8 @@ class PermifrostDriftCheck(Rule):
             )
             result: dict[str, set[str]] = {}
             for row in cursor.fetchall():
-                result.setdefault(str(row[0]).upper(), set()).add(str(row[1]).upper())
+                grantee_name, role = row[0], row[1]
+                result.setdefault(str(grantee_name).upper(), set()).add(str(role).upper())
             return result
         except Exception as exc:
             if is_allowlisted_sf_error(exc):

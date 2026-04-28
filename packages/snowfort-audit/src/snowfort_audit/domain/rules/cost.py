@@ -144,7 +144,8 @@ class AggressiveAutoSuspendCheck(Rule):
                 """
                 cursor.execute(tag_query)
                 for row in cursor.fetchall():
-                    env_tags[row[0].upper()] = row[1].upper()
+                    obj_name, tag_value = row[0], row[1]
+                    env_tags[obj_name.upper()] = tag_value.upper()
         except Exception as exc:
             if is_allowlisted_sf_error(exc):
                 return env_tags
@@ -246,10 +247,6 @@ class ZombieWarehouseCheck(Rule):
             violations = []
             for wh in all_warehouses:
                 name = wh[_wh_name_idx]
-                # state = wh[1] # Unused
-
-                # If warehouse exists but not in active list (and presumably we want to flag it)
-                # Improving reliability: Explicitly check for no access
                 if name not in active_warehouses:
                     violations.append(
                         Violation(
@@ -297,16 +294,19 @@ class CloudServicesRatioCheck(Rule):
         """
         try:
             cursor.execute(query)
-            return [
-                Violation(
-                    self.id,
-                    row[0],
-                    f"High Cloud Services consumption: {row[1]:.1f}%",
-                    self.severity,
-                    remediation_key=self.remediation_key,
+            violations = []
+            for row in cursor.fetchall():
+                wh_name, ratio = row[0], row[1]
+                violations.append(
+                    Violation(
+                        self.id,
+                        wh_name,
+                        f"High Cloud Services consumption: {ratio:.1f}%",
+                        self.severity,
+                        remediation_key=self.remediation_key,
+                    )
                 )
-                for row in cursor.fetchall()
-            ]
+            return violations
         except Exception as exc:
             if is_allowlisted_sf_error(exc):
                 return []
@@ -339,16 +339,18 @@ class RunawayQueryCheck(Rule):
         query = "SHOW PARAMETERS LIKE 'STATEMENT_TIMEOUT_IN_SECONDS' IN ACCOUNT"
         cursor.execute(query)
         res = cursor.fetchone()
-        if res and int(res[1]) > self.GLOBAL_TIMEOUT_THRESHOLD_SECONDS:  # Default is 172800 (2 days)
-            return [
-                Violation(
-                    self.id,
-                    "Account",
-                    f"Global timeout is high: {res[1]}s",
-                    self.severity,
-                    remediation_key=self.remediation_key,
-                )
-            ]
+        if res:
+            timeout_val = res[1]
+            if int(timeout_val) > self.GLOBAL_TIMEOUT_THRESHOLD_SECONDS:
+                return [
+                    Violation(
+                        self.id,
+                        "Account",
+                        f"Global timeout is high: {timeout_val}s",
+                        self.severity,
+                        remediation_key=self.remediation_key,
+                    )
+                ]
         return []
 
 
@@ -403,8 +405,7 @@ class UnderutilizedWarehouseCheck(Rule):
     def check_online(
         self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
     ) -> list[Violation]:
-        # Check Account Usage Load History for last 7 days.
-        # Warning: WAREHOUSE_LOAD_HISTORY is latent (up to 2 hrs).
+        # WAREHOUSE_LOAD_HISTORY is latent (up to 2 hrs).
         query = """
         SELECT WAREHOUSE_NAME, AVG(AVG_RUNNING) as avg_load
         FROM SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_LOAD_HISTORY
@@ -494,7 +495,7 @@ class HighChurnPermanentTableCheck(Rule):
             cdc_regex = re.compile(cdc_pattern) if cdc_pattern else None
             violations = []
             for row in cursor.fetchall():
-                table_name = str(row[0])
+                table_name, active_bytes, failsafe_bytes = str(row[0]), row[1], row[2]
                 if exclude_patterns and any(_name_matches_pattern(table_name.upper(), pat) for pat in exclude_patterns):
                     continue
                 # Match either database or schema portion — CDC tooling often creates its
@@ -508,7 +509,7 @@ class HighChurnPermanentTableCheck(Rule):
                 if is_cdc:
                     category = FindingCategory.EXPECTED
                     message = (
-                        f"Fail-safe bytes ({row[2]}) > 3x Active bytes ({row[1]}) on CDC-pattern schema. "
+                        f"Fail-safe bytes ({failsafe_bytes}) > 3x Active bytes ({active_bytes}) on CDC-pattern schema. "
                         "Convert to TRANSIENT to eliminate fail-safe cost."
                     )
                     remediation_instruction = (
@@ -517,12 +518,14 @@ class HighChurnPermanentTableCheck(Rule):
                     )
                 else:
                     category = FindingCategory.ACTIONABLE
-                    message = f"Fail-safe bytes ({row[2]}) > 3x Active bytes ({row[1]}). High churn detected."
+                    message = (
+                        f"Fail-safe bytes ({failsafe_bytes}) > 3x Active bytes ({active_bytes}). High churn detected."
+                    )
                     remediation_instruction = None
                 violations.append(
                     Violation(
                         self.id,
-                        row[0],
+                        table_name,
                         message,
                         self.severity,
                         remediation_key=self.remediation_key,
@@ -581,9 +584,10 @@ class PerWarehouseStatementTimeoutCheck(Rule):
             cursor.execute("SHOW PARAMETERS LIKE 'STATEMENT_TIMEOUT_IN_SECONDS' IN ACCOUNT")
             acct_row = cursor.fetchone()
             try:
+                acct_timeout = acct_row[1] if acct_row else None
                 account_default = (
-                    int(cast(str | int, acct_row[1]))
-                    if acct_row and acct_row[1] not in (None, "", "null")
+                    int(cast(str | int, acct_timeout))
+                    if acct_timeout not in (None, "", "null")
                     else self.DEFAULT_TIMEOUT_SECONDS
                 )
             except (TypeError, ValueError):
@@ -599,7 +603,8 @@ class PerWarehouseStatementTimeoutCheck(Rule):
                 )
                 for r in cursor.fetchall():
                     try:
-                        wh_overrides[str(r[0]).upper()] = int(r[1])
+                        wh_name, timeout_str = r[0], r[1]
+                        wh_overrides[str(wh_name).upper()] = int(timeout_str)
                     except (TypeError, ValueError, IndexError):
                         pass
             except Exception as exc:
@@ -669,13 +674,16 @@ class StaleTableDetectionCheck(Rule):
         )
         try:
             cursor.execute(query)
-            return [
-                self.violation(
-                    f"{row[0]}.{row[1]}.{row[2]}",
-                    f"Table not queried in {self.STALE_DAYS}+ days with significant storage ({row[3]:,} bytes).",
+            violations = []
+            for row in cursor.fetchall():
+                db, schema, table, active_bytes = row[0], row[1], row[2], row[3]
+                violations.append(
+                    self.violation(
+                        f"{db}.{schema}.{table}",
+                        f"Table not queried in {self.STALE_DAYS}+ days with significant storage ({active_bytes:,} bytes).",
+                    )
                 )
-                for row in cursor.fetchall()
-            ]
+            return violations
         except Exception as exc:
             if is_allowlisted_sf_error(exc):
                 return []
@@ -716,10 +724,11 @@ class StagingTableTypeOptimizationCheck(Rule):
             cursor.execute(query)
             violations = []
             for row in cursor.fetchall():
-                fq = f"{row[0]}.{row[1]}.{row[2]}"
+                db, schema, table, failsafe_bytes = row[0], row[1], row[2], row[3]
+                fq = f"{db}.{schema}.{table}"
                 msg = "Permanent table with staging-like name has fail-safe/active storage; use TRANSIENT or TEMPORARY for staging."
-                if row[3] and int(row[3]) > 0:
-                    msg += f" Fail-safe bytes: {row[3]:,}."
+                if failsafe_bytes and int(failsafe_bytes) > 0:
+                    msg += f" Fail-safe bytes: {failsafe_bytes:,}."
                 violations.append(self.violation(fq, msg))
             return violations
         except Exception as exc:
@@ -768,13 +777,16 @@ class UnusedMaterializedViewCheck(Rule):
         )
         try:
             cursor.execute(query)
-            return [
-                self.violation(
-                    f"{row[0]}.{row[1]}.{row[2]}",
-                    "Materialized view is refreshed but not queried in last 30 days; consider dropping or consolidating.",
+            violations = []
+            for row in cursor.fetchall():
+                db, schema, table = row[0], row[1], row[2]
+                violations.append(
+                    self.violation(
+                        f"{db}.{schema}.{table}",
+                        "Materialized view is refreshed but not queried in last 30 days; consider dropping or consolidating.",
+                    )
                 )
-                for row in cursor.fetchall()
-            ]
+            return violations
         except Exception as exc:
             if is_allowlisted_sf_error(exc):
                 return []
@@ -856,13 +868,16 @@ class QASEligibilityRecommendationCheck(Rule):
         """
         try:
             cursor.execute(query)
-            return [
-                self.violation(
-                    row[0],
-                    f"Warehouse has {row[2]} QAS-eligible queries ({row[1]:.0f}s eligible time) in last 7 days; enable ENABLE_QUERY_ACCELERATION.",
+            violations = []
+            for row in cursor.fetchall():
+                wh_name, eligible_sec, eligible_count = row[0], row[1], row[2]
+                violations.append(
+                    self.violation(
+                        wh_name,
+                        f"Warehouse has {eligible_count} QAS-eligible queries ({eligible_sec:.0f}s eligible time) in last 7 days; enable ENABLE_QUERY_ACCELERATION.",
+                    )
                 )
-                for row in cursor.fetchall()
-            ]
+            return violations
         except Exception as exc:
             if is_allowlisted_sf_error(exc):
                 return []
@@ -902,13 +917,16 @@ class AutomaticClusteringCostBenefitCheck(Rule):
         )
         try:
             cursor.execute(query)
-            return [
-                self.violation(
-                    f"{row[0]}.{row[1]}.{row[2]}",
-                    f"High automatic clustering cost in last 30 days: {row[3]:.2f} credits; review cost vs pruning benefit.",
+            violations = []
+            for row in cursor.fetchall():
+                db, schema, table, total_credits = row[0], row[1], row[2], row[3]
+                violations.append(
+                    self.violation(
+                        f"{db}.{schema}.{table}",
+                        f"High automatic clustering cost in last 30 days: {total_credits:.2f} credits; review cost vs pruning benefit.",
+                    )
                 )
-                for row in cursor.fetchall()
-            ]
+            return violations
         except Exception as exc:
             if is_allowlisted_sf_error(exc):
                 return []
@@ -948,13 +966,16 @@ class SearchOptimizationCostBenefitCheck(Rule):
         )
         try:
             cursor.execute(query)
-            return [
-                self.violation(
-                    f"{row[0]}.{row[1]}",
-                    f"High search optimization cost in last 30 days: {row[2]:.2f} credits ({row[3]} ops); review index usage.",
+            violations = []
+            for row in cursor.fetchall():
+                db, schema, total_credits, ops = row[0], row[1], row[2], row[3]
+                violations.append(
+                    self.violation(
+                        f"{db}.{schema}",
+                        f"High search optimization cost in last 30 days: {total_credits:.2f} credits ({ops} ops); review index usage.",
+                    )
                 )
-                for row in cursor.fetchall()
-            ]
+            return violations
         except Exception as exc:
             if is_allowlisted_sf_error(exc):
                 return []
