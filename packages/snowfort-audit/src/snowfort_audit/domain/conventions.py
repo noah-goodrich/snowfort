@@ -89,6 +89,14 @@ class WarehouseSizingThresholds:
     dormant_days: int = 30
     # Default lookback window (days) for sizing analysis.
     lookback_days: int = 30
+    # PERF_021: P95/P50 query duration ratio above which a warehouse is flagged.
+    duration_anomaly_ratio: float = 10.0
+    # PERF_023: P75 inter-query gap > auto_suspend × this ratio → already aggressive.
+    auto_suspend_aggressive_ratio: float = 10.0
+    # COST_034: combined P50 utilization of two warehouses must be below this to flag.
+    consolidation_combined_p50_max: float = 0.60
+    # COST_035: Snowflake credit price used for dollar-denominated savings projections.
+    credit_price_per_hour: float = 3.0
 
 
 @dataclass(frozen=True)

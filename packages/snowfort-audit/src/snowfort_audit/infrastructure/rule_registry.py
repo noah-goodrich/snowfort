@@ -110,9 +110,14 @@ from snowfort_audit.domain.rules import (
 )
 from snowfort_audit.domain.rules.cortex_cost import get_cortex_rules
 from snowfort_audit.domain.rules.sizing import (
+    AutoSuspendOptimizationCheck,
+    ConsolidationCandidatesCheck,
     DormantWarehouseCheck,
     ExcessiveTimeTravelRetentionCheck,
+    QueryDurationAnomalyCheck,
+    SavingsProjectionCheck,
     ThreeLayerUtilizationCheck,
+    WorkloadIsolationCheck,
 )
 from snowfort_audit.infrastructure.config_loader import load_conventions
 from snowfort_audit.infrastructure.gateways.sql_validator import SqlFluffValidatorGateway
@@ -236,8 +241,13 @@ def get_all_rules(
         AntiPatternSQLDetectionCheck(telemetry=telemetry),
         # Cortex cost governance (D1–D6, COST_016–033)
         *get_cortex_rules(conventions=conventions, telemetry=telemetry),
-        # Directive B — warehouse sizing + storage (pilot rules; remaining rules in follow-ups)
+        # Directive B — warehouse sizing + storage
         ThreeLayerUtilizationCheck(conventions=conventions, telemetry=telemetry),
+        QueryDurationAnomalyCheck(conventions=conventions, telemetry=telemetry),
+        WorkloadIsolationCheck(conventions=conventions, telemetry=telemetry),
+        AutoSuspendOptimizationCheck(conventions=conventions, telemetry=telemetry),
+        ConsolidationCandidatesCheck(conventions=conventions, telemetry=telemetry),
+        SavingsProjectionCheck(conventions=conventions, telemetry=telemetry),
         DormantWarehouseCheck(conventions=conventions, telemetry=telemetry),
         ExcessiveTimeTravelRetentionCheck(conventions=conventions, telemetry=telemetry),
     ]

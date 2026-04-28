@@ -1,4 +1,4 @@
-"""Tests for Directive B pilot sizing rules (PERF_020, COST_036, COST_037)."""
+"""Tests for Directive B sizing rules (PERF_020–023, COST_034–037)."""
 
 from unittest.mock import MagicMock
 
@@ -12,9 +12,14 @@ from snowfort_audit.domain.conventions import (
 )
 from snowfort_audit.domain.rule_definitions import FindingCategory, RuleExecutionError, Severity
 from snowfort_audit.domain.rules.sizing import (
+    AutoSuspendOptimizationCheck,
+    ConsolidationCandidatesCheck,
     DormantWarehouseCheck,
     ExcessiveTimeTravelRetentionCheck,
+    QueryDurationAnomalyCheck,
+    SavingsProjectionCheck,
     ThreeLayerUtilizationCheck,
+    WorkloadIsolationCheck,
 )
 
 # ── PERF_020: Three-Layer Utilization Profile ────────────────────────────────
@@ -138,3 +143,240 @@ def test_cost037_convention_overrides():
     c = MagicMock()
     c.fetchall.return_value = [("DB.SCH.MED", 100 * 1024**3, 30, 0)]  # 100GB > 50GB override
     assert len(ExcessiveTimeTravelRetentionCheck(conventions=conv).check_online(c)) == 1
+
+
+# ── PERF_021: Query Duration Anomaly ─────────────────────────────────────────
+
+
+def test_perf021_flags_anomalous_warehouse():
+    c = MagicMock()
+    # (WAREHOUSE_NAME, p50_seconds, p95_seconds, query_count)
+    # ratio = 120 / 2 = 60 — exceeds default 10x threshold
+    c.fetchall.return_value = [("PROD_WH", 2.0, 120.0, 500)]
+    violations = QueryDurationAnomalyCheck().check_online(c)
+    assert len(violations) == 1
+    assert violations[0].severity == Severity.LOW
+    assert violations[0].category == FindingCategory.ACTIONABLE
+    assert "PROD_WH" in violations[0].message
+    assert "60.0" in violations[0].message or "60x" in violations[0].message.lower()
+
+
+def test_perf021_skips_normal_ratio():
+    c = MagicMock()
+    # ratio = 15 / 5 = 3 — below default 10x threshold
+    c.fetchall.return_value = [("DEV_WH", 5.0, 15.0, 200)]
+    assert QueryDurationAnomalyCheck().check_online(c) == []
+
+
+def test_perf021_skips_zero_p50():
+    c = MagicMock()
+    # p50 = 0 → division guard
+    c.fetchall.return_value = [("BAD_WH", 0.0, 100.0, 50)]
+    assert QueryDurationAnomalyCheck().check_online(c) == []
+
+
+def test_perf021_threshold_override():
+    conv = SnowfortConventions(
+        thresholds=RuleThresholdConventions(warehouse_sizing=WarehouseSizingThresholds(duration_anomaly_ratio=3.0))
+    )
+    c = MagicMock()
+    # ratio = 15 / 4 = 3.75 — above overridden threshold of 3x
+    c.fetchall.return_value = [("WH", 4.0, 15.0, 100)]
+    assert len(QueryDurationAnomalyCheck(conventions=conv).check_online(c)) == 1
+
+
+def test_perf021_error_raises_rule_execution_error():
+    c = MagicMock()
+    c.execute.side_effect = RuntimeError("boom")
+    with pytest.raises(RuleExecutionError):
+        QueryDurationAnomalyCheck().check_online(c)
+
+
+# ── PERF_022: Workload Isolation ──────────────────────────────────────────────
+
+
+def test_perf022_flags_mixed_workload():
+    c = MagicMock()
+    # (WAREHOUSE_NAME, short_hours, long_hours, total_hours)
+    # short_hours=8, long_hours=4 → mixed
+    c.fetchall.return_value = [("MIXED_WH", 8, 4, 24)]
+    violations = WorkloadIsolationCheck().check_online(c)
+    assert len(violations) == 1
+    assert violations[0].severity == Severity.MEDIUM
+    assert violations[0].category == FindingCategory.ACTIONABLE
+    assert "MIXED_WH" in violations[0].message
+
+
+def test_perf022_skips_short_only_workload():
+    c = MagicMock()
+    # No long hours → uniform interactive workload
+    c.fetchall.return_value = [("INTERACTIVE_WH", 20, 0, 24)]
+    assert WorkloadIsolationCheck().check_online(c) == []
+
+
+def test_perf022_skips_long_only_workload():
+    c = MagicMock()
+    # No short hours → pure batch
+    c.fetchall.return_value = [("BATCH_WH", 0, 12, 24)]
+    assert WorkloadIsolationCheck().check_online(c) == []
+
+
+def test_perf022_threshold_override():
+    conv = SnowfortConventions(
+        thresholds=RuleThresholdConventions(
+            warehouse_sizing=WarehouseSizingThresholds(
+                workload_split_short_p50_seconds=2.0,
+                workload_split_long_p50_seconds=120.0,
+            )
+        )
+    )
+    c = MagicMock()
+    # With tighter thresholds, short_hours=3, long_hours=3 still flags
+    c.fetchall.return_value = [("WH", 3, 3, 24)]
+    assert len(WorkloadIsolationCheck(conventions=conv).check_online(c)) == 1
+
+
+def test_perf022_error_raises_rule_execution_error():
+    c = MagicMock()
+    c.execute.side_effect = RuntimeError("network error")
+    with pytest.raises(RuleExecutionError):
+        WorkloadIsolationCheck().check_online(c)
+
+
+# ── PERF_023: Auto-Suspend Optimization ──────────────────────────────────────
+
+
+def test_perf023_flags_tighten_recommendation():
+    c = MagicMock()
+    # (WAREHOUSE_NAME, p75_gap_seconds, auto_suspend_seconds)
+    # P75 gap = 45s, auto_suspend = 300s → tighten
+    c.fetchall.return_value = [("IDLE_WH", 45.0, 300)]
+    violations = AutoSuspendOptimizationCheck().check_online(c)
+    assert len(violations) == 1
+    assert violations[0].severity == Severity.LOW
+    assert violations[0].category == FindingCategory.ACTIONABLE
+    assert "tighten" in violations[0].message.lower() or "reduce" in violations[0].message.lower()
+
+
+def test_perf023_flags_already_aggressive():
+    c = MagicMock()
+    # P75 gap = 3600s, auto_suspend = 30s → 3600 > 10*30 = 300 → already aggressive
+    c.fetchall.return_value = [("BURSTY_WH", 3600.0, 30)]
+    violations = AutoSuspendOptimizationCheck().check_online(c)
+    assert len(violations) == 1
+    assert "aggressive" in violations[0].message.lower() or "frequent" in violations[0].message.lower()
+
+
+def test_perf023_skips_well_configured():
+    c = MagicMock()
+    # P75 gap = 120s, auto_suspend = 300s, ratio = 300/120 = 2.5 (between 1x and 10x)
+    # gap >= auto_suspend (120 < 300 → should flag tighten... let me reconsider)
+    # To skip: gap should be >= auto_suspend and < 10*auto_suspend
+    # P75 gap = 400s, auto_suspend = 300s → gap >= auto_suspend and gap < 10*300=3000 → skip
+    c.fetchall.return_value = [("GOOD_WH", 400.0, 300)]
+    assert AutoSuspendOptimizationCheck().check_online(c) == []
+
+
+def test_perf023_error_raises_rule_execution_error():
+    c = MagicMock()
+    c.execute.side_effect = RuntimeError("timeout")
+    with pytest.raises(RuleExecutionError):
+        AutoSuspendOptimizationCheck().check_online(c)
+
+
+# ── COST_034: Consolidation Candidates ───────────────────────────────────────
+
+
+def test_cost034_flags_consolidation_pair():
+    c = MagicMock()
+    # (WAREHOUSE_NAME, p50_utilization)
+    # 0.15 + 0.20 = 0.35 < 0.60 threshold → flag pair
+    c.fetchall.return_value = [("WH_A", 0.15), ("WH_B", 0.20)]
+    violations = ConsolidationCandidatesCheck().check_online(c)
+    assert len(violations) == 1
+    assert violations[0].severity == Severity.MEDIUM
+    assert violations[0].category == FindingCategory.ACTIONABLE
+    assert "WH_A" in violations[0].message and "WH_B" in violations[0].message
+
+
+def test_cost034_skips_when_combined_too_high():
+    c = MagicMock()
+    # 0.40 + 0.35 = 0.75 > 0.60 threshold → no flag
+    c.fetchall.return_value = [("WH_A", 0.40), ("WH_B", 0.35)]
+    assert ConsolidationCandidatesCheck().check_online(c) == []
+
+
+def test_cost034_skips_single_warehouse():
+    c = MagicMock()
+    c.fetchall.return_value = [("LONE_WH", 0.10)]
+    assert ConsolidationCandidatesCheck().check_online(c) == []
+
+
+def test_cost034_threshold_override():
+    conv = SnowfortConventions(
+        thresholds=RuleThresholdConventions(
+            warehouse_sizing=WarehouseSizingThresholds(consolidation_combined_p50_max=0.30)
+        )
+    )
+    c = MagicMock()
+    # 0.15 + 0.20 = 0.35 > 0.30 tightened threshold → no flag
+    c.fetchall.return_value = [("WH_A", 0.15), ("WH_B", 0.20)]
+    assert ConsolidationCandidatesCheck(conventions=conv).check_online(c) == []
+
+
+def test_cost034_error_raises_rule_execution_error():
+    c = MagicMock()
+    c.execute.side_effect = RuntimeError("access denied")
+    with pytest.raises(RuleExecutionError):
+        ConsolidationCandidatesCheck().check_online(c)
+
+
+# ── COST_035: Savings Projection ─────────────────────────────────────────────
+
+
+def test_cost035_flags_savings_opportunity():
+    c = MagicMock()
+    # (WAREHOUSE_NAME, WAREHOUSE_SIZE, total_credits_lookback, p50_running)
+    # LARGE at 20% utilization → recommend MEDIUM, project savings
+    c.fetchall.return_value = [("BIG_WH", "LARGE", 240.0, 0.07)]
+    violations = SavingsProjectionCheck().check_online(c)
+    assert len(violations) == 1
+    assert violations[0].severity == Severity.LOW
+    assert violations[0].category == FindingCategory.INFORMATIONAL
+    assert "BIG_WH" in violations[0].message
+
+
+def test_cost035_includes_dollar_amount():
+    c = MagicMock()
+    # LARGE (8 credits/hr), 240 credits → 30 hrs/month, downsize to MEDIUM (4), save 120/mo
+    # annual = 120 * 12 = 1440 credits × $3 = $4320
+    c.fetchall.return_value = [("BIG_WH", "LARGE", 240.0, 0.07)]
+    violations = SavingsProjectionCheck().check_online(c)
+    assert len(violations) == 1
+    assert "$" in violations[0].message
+
+
+def test_cost035_skips_xsmall_no_downsize():
+    c = MagicMock()
+    # X-SMALL can't be downsized further
+    c.fetchall.return_value = [("TINY_WH", "X-SMALL", 30.0, 0.05)]
+    assert SavingsProjectionCheck().check_online(c) == []
+
+
+def test_cost035_threshold_override_credit_price():
+    conv = SnowfortConventions(
+        thresholds=RuleThresholdConventions(warehouse_sizing=WarehouseSizingThresholds(credit_price_per_hour=4.0))
+    )
+    c = MagicMock()
+    c.fetchall.return_value = [("WH", "LARGE", 240.0, 0.07)]
+    violations = SavingsProjectionCheck(conventions=conv).check_online(c)
+    assert len(violations) == 1
+    # Higher credit price → larger dollar savings in the message
+    assert "$" in violations[0].message
+
+
+def test_cost035_error_raises_rule_execution_error():
+    c = MagicMock()
+    c.execute.side_effect = RuntimeError("metering unavailable")
+    with pytest.raises(RuleExecutionError):
+        SavingsProjectionCheck().check_online(c)
