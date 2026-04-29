@@ -609,7 +609,6 @@ class ConsolidationCandidatesCheck(Rule):
             APPROX_PERCENTILE(avg_running, 0.5) AS p50_utilization
         FROM hourly
         GROUP BY 1
-        -- Both warehouses must be < threshold/2 to form a valid pair.
         HAVING p50_utilization < {thresholds.consolidation_combined_p50_max / 2.0}
         """
         try:

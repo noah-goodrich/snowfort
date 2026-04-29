@@ -85,14 +85,15 @@ def _redact_message(message: str) -> str:
     from leaking into a third-party LLM prompt. Tokens are stable per-message so the LLM
     can still reason about "which finding is which".
     """
-    counter = {"n": 0}
+    n = 0
     seen: dict[str, str] = {}
 
     def _replace(match: re.Match[str]) -> str:
+        nonlocal n
         original = match.group(0)
         if original not in seen:
-            counter["n"] += 1
-            seen[original] = f"<RESOURCE_{counter['n']}>"
+            n += 1
+            seen[original] = f"<RESOURCE_{n}>"
         return seen[original]
 
     redacted = message

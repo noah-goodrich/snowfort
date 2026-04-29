@@ -73,8 +73,6 @@ _SENSITIVE_CORTEX_PAYLOAD_COLUMNS: frozenset[str] = frozenset(
 def _discover_sensitive_columns(cursor: SnowflakeCursorProtocol, view: str) -> tuple[str, ...]:
     """Return the subset of payload columns that actually exist on this view.
 
-    Querying INFORMATION_SCHEMA per Cortex view costs one round-trip. The fetched
-    column list is small and the result is implicitly cached by ScanContext.
     Returns ``()`` if the lookup fails — the caller treats that as "fail closed":
     the view-level fetch will then be skipped rather than fall back to ``SELECT *``,
     so we never silently leak prompt/response text.

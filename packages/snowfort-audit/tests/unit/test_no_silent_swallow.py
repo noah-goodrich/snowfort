@@ -1,4 +1,4 @@
-"""Architecture-level enforcement of PR #1 AC-1: zero silent exception swallowing.
+"""Architecture invariant: zero silent exception swallowing in rule entry points.
 
 Every ``except Exception`` block under ``src/snowfort_audit/domain/rules/`` must end
 with one of the canonical handling patterns:
@@ -125,7 +125,7 @@ def test_no_silent_exception_swallow_in_rules():
             offenders.append(f"{py_file.relative_to(RULES_DIR.parent.parent.parent)}:{node.lineno} in {enclosing}")
 
     assert not offenders, (
-        "Silent `except Exception` swallows found in rule code (PR #1 AC-1 violation):\n  "
+        "Silent `except Exception` swallows found in rule code (architecture invariant violation):\n  "
         + "\n  ".join(offenders)
         + "\n\nFix: replace with `is_allowlisted_sf_error(exc) → return []` for narrow view-not-found"
         " cases, or `raise RuleExecutionError(self.id, str(exc), cause=exc) from exc` for everything else."
