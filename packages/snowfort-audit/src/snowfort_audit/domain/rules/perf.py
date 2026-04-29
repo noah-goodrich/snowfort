@@ -94,8 +94,9 @@ class ClusterKeyValidationCheck(Rule):
 
     def _check_table_clustering(self, cursor: SnowflakeCursorProtocol, row: tuple) -> list[Violation]:
         catalog, schema, name, clustering_key = row
-        # Fully qualify with quotes to handle special characters
-        fqdn = f'"{catalog}"."{schema}"."{name}"'
+        from snowfort_audit.domain.sql_safety import quote_fqdn
+
+        fqdn = quote_fqdn(catalog, schema, name)
 
         if not clustering_key:
             return [
@@ -111,8 +112,10 @@ class ClusterKeyValidationCheck(Rule):
         return self._check_clustering_depth(cursor, fqdn)
 
     def _check_clustering_depth(self, cursor: SnowflakeCursorProtocol, fqdn: str) -> list[Violation]:
+        from snowfort_audit.domain.sql_safety import escape_string_literal
+
         try:
-            cursor.execute(f"SELECT SYSTEM$CLUSTERING_DEPTH('{fqdn}')")
+            cursor.execute(f"SELECT SYSTEM$CLUSTERING_DEPTH('{escape_string_literal(fqdn)}')")
             depth_row = cursor.fetchone()
             if depth_row and depth_row[0] is not None:
                 try:

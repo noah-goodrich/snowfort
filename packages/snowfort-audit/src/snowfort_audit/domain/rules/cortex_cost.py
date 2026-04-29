@@ -42,22 +42,69 @@ if TYPE_CHECKING:
 CORTEX_WINDOW_DAYS = 30
 
 
+# Columns in any Cortex usage view that are known to carry literal user-provided
+# prompts or LLM-generated responses. These contain customer business questions
+# and AI answers in plaintext — they MUST NOT travel over the wire into the audit
+# pipeline, since the rules only need aggregate counters / model names / users.
+# Discovery happens at runtime via INFORMATION_SCHEMA so we only EXCLUDE columns
+# that actually exist on each view (Snowflake errors if EXCLUDE names a column
+# that isn't in the view).
+_SENSITIVE_CORTEX_PAYLOAD_COLUMNS: frozenset[str] = frozenset(
+    {
+        "REQUEST_BODY",
+        "RESPONSE_BODY",
+        "REQUEST_TEXT",
+        "RESPONSE_TEXT",
+        "INPUT_BODY",
+        "OUTPUT_BODY",
+        "MESSAGES",
+        "PROMPT",
+        "COMPLETION",
+        "QUERY_TEXT",
+    }
+)
+
+
 # ---------------------------------------------------------------------------
 # Fetcher factory
 # ---------------------------------------------------------------------------
 
 
+def _discover_sensitive_columns(cursor: SnowflakeCursorProtocol, view: str) -> tuple[str, ...]:
+    """Return the subset of payload columns that actually exist on this view.
+
+    Querying INFORMATION_SCHEMA per Cortex view costs one round-trip. The fetched
+    column list is small and the result is implicitly cached by ScanContext.
+    Returns ``()`` if the lookup fails — the caller treats that as "fail closed":
+    the view-level fetch will then be skipped rather than fall back to ``SELECT *``,
+    so we never silently leak prompt/response text.
+    """
+    try:
+        cursor.execute(
+            "SELECT COLUMN_NAME FROM SNOWFLAKE.ACCOUNT_USAGE.COLUMNS"
+            " WHERE TABLE_CATALOG = 'SNOWFLAKE' AND TABLE_SCHEMA = 'ACCOUNT_USAGE'"
+            f" AND TABLE_NAME = '{view}' AND DELETED IS NULL"
+        )
+        cols = {str(r[0]).upper() for r in cursor.fetchall() if r and r[0]}
+    except Exception:
+        return ()
+    return tuple(sorted(cols & _SENSITIVE_CORTEX_PAYLOAD_COLUMNS))
+
+
 def _cortex_fetcher(cursor: SnowflakeCursorProtocol, view: str, time_col: str = "START_TIME"):
     """Return a get_or_fetch-compatible fetcher for a CORTEX ACCOUNT_USAGE view.
 
-    Fetches up to 50 000 rows within the last CORTEX_WINDOW_DAYS days.
-    The window_days parameter is forwarded by get_or_fetch but the actual
-    SQL uses the module-level CORTEX_WINDOW_DAYS constant for consistency.
+    Fetches up to 50 000 rows within the last CORTEX_WINDOW_DAYS days, with any
+    sensitive payload columns (REQUEST_BODY, RESPONSE_BODY, MESSAGES, etc.)
+    explicitly excluded at the SQL level so they never traverse the wire or land
+    in the in-process row cache.
     """
 
     def _fetch(v: str, window_days: int) -> tuple[Row, ...]:
+        sensitive = _discover_sensitive_columns(cursor, view)
+        exclude_clause = f" EXCLUDE ({', '.join(sensitive)})" if sensitive else ""
         cursor.execute(
-            f"SELECT * FROM SNOWFLAKE.ACCOUNT_USAGE.{view}"
+            f"SELECT *{exclude_clause} FROM SNOWFLAKE.ACCOUNT_USAGE.{view}"
             f" WHERE {time_col} >= DATEADD('day', -{window_days}, CURRENT_TIMESTAMP())"
             " LIMIT 50000"
         )

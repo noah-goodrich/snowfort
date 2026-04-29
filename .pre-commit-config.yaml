@@ -19,6 +19,12 @@ repos:
         language: system
         pass_filenames: false
         files: ^packages/snowfort-audit/
+      - id: sensitive-outputs
+        name: sensitive-outputs lint
+        entry: bash -c 'cd packages/snowfort-audit && python scripts/check_sensitive_outputs.py'
+        language: system
+        pass_filenames: false
+        files: ^packages/snowfort-audit/src/snowfort_audit/domain/rules/
       - id: tests
         name: tests
         entry: bash -c 'cd packages/snowfort-audit && pytest tests/ -q --tb=short -p no:cacheprovider'

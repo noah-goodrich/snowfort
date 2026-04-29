@@ -50,7 +50,8 @@ def test_resize_churn_none():
 def test_resize_churn_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert ResizeChurnCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        ResizeChurnCheck().check_online(c)
 
 
 def test_cache_contention():
@@ -111,7 +112,8 @@ def test_gen2_upgrade_low_dml():
 def test_gen2_upgrade_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert Gen2UpgradeCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        Gen2UpgradeCheck().check_online(c)
 
 
 def test_snowpark_optimization():
@@ -130,4 +132,5 @@ def test_snowpark_optimization_low_spill():
 def test_snowpark_optimization_exc():
     c = MagicMock()
     c.execute.side_effect = RuntimeError()
-    assert SnowparkOptimizationCheck().check_online(c) == []
+    with pytest.raises(RuleExecutionError):
+        SnowparkOptimizationCheck().check_online(c)

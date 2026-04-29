@@ -133,6 +133,9 @@ def _export_yaml_report(
     out.parent.mkdir(parents=True, exist_ok=True)
     yaml_str = yaml.dump(report_data, default_flow_style=False, sort_keys=False, allow_unicode=True)
     out.write_text(yaml_str, encoding="utf-8")
+    from snowfort_audit.interface.cli.report import _restrict_to_owner
+
+    _restrict_to_owner(out)
     Console().print(f"[green]Report written to {output_path}[/green]")
 
 

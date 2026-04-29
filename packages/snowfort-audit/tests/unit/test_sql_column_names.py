@@ -179,7 +179,17 @@ def test_cortex_fetcher_uses_start_time_in_sql():
     c.fetchall.return_value = []
     fetcher = _cortex_fetcher(c, "CORTEX_AI_FUNCTIONS_USAGE_HISTORY")
     fetcher("CORTEX_AI_FUNCTIONS_USAGE_HISTORY", 30)
-    sql = c.execute.call_args_list[0][0][0]
+    # The fetcher first issues a sensitive-column discovery query, then the data fetch.
+    # Inspect the data-fetch SQL (the one against the Cortex view itself).
+    fetch_sqls = [
+        call[0][0]
+        for call in c.execute.call_args_list
+        if call[0]
+        and "CORTEX_AI_FUNCTIONS_USAGE_HISTORY" in call[0][0]
+        and "INFORMATION_SCHEMA" not in call[0][0].upper()
+    ]
+    assert fetch_sqls, "Expected a SELECT against the Cortex usage view"
+    sql = fetch_sqls[-1]
     assert_no_deprecated_cols(sql, "CORTEX_AI_FUNCTIONS_USAGE_HISTORY")
     assert re.search(r"\bSTART_TIME\b", sql.upper()), "Must use START_TIME"
 
