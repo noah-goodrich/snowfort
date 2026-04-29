@@ -6,6 +6,8 @@ enriched manifest, and reliable error handling.
 **Priority:** Highest dollar impact. The single most valuable tool in the audit per
 production experience. Warehouse spend is typically 60-80% of a Snowflake bill.
 
+*Shipped: 2026-04-29 — PRs #8, #9, #12 merged to main*
+
 ---
 
 ## Objective
@@ -50,28 +52,6 @@ types from `QUERY_HISTORY`. Classification drives sizing recommendations:
 All warehouse queries route through `ScanContext.get_or_fetch()` for single-roundtrip
 caching.
 
-**Reference SQL (P50 utilization from memo section 14):**
-```sql
-WITH hourly AS (
-    SELECT
-        WAREHOUSE_NAME,
-        DATE_TRUNC('HOUR', START_TIME) AS hr,
-        AVG(AVG_RUNNING) AS avg_running,
-        AVG(AVG_QUEUED_LOAD) AS avg_queued,
-        MAX(AVG_RUNNING + AVG_QUEUED_LOAD + AVG_QUEUED_PROVISIONING + AVG_BLOCKED) AS peak_load
-    FROM SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_LOAD_HISTORY
-    WHERE START_TIME >= DATEADD('DAY', -30, CURRENT_TIMESTAMP())
-    GROUP BY 1, 2
-)
-SELECT
-    WAREHOUSE_NAME,
-    APPROX_PERCENTILE(avg_running, 0.5) AS p50_running,
-    APPROX_PERCENTILE(avg_queued, 0.5) AS p50_queued,
-    APPROX_PERCENTILE(peak_load, 0.95) AS p95_peak
-FROM hourly
-GROUP BY 1;
-```
-
 ### Storage Cost Optimization
 
 **New rules:**
@@ -81,7 +61,7 @@ GROUP BY 1;
 | COST_037 | Excessive Time Travel Retention | Flag tables >1TB with `DATA_RETENTION_TIME_IN_DAYS` > 7 where query frequency is < 1/day. High retention on rarely-queried large tables wastes storage. | MEDIUM |
 | COST_038 | Clone Sprawl | Detect databases/schemas with >5 active clones or clones older than 90 days. Stale clones accumulate storage delta as source diverges. | LOW |
 | COST_039 | Cold Storage / Iceberg Migration Candidates | Flag tables >100GB with <1 query/week and no clustering key. These are candidates for Iceberg table conversion (automatic tiered storage) or archival. | MEDIUM |
-| COST_040 | Stale Table Storage Impact | Enhance existing COST_016 (stale table detection) with storage byte quantification. Rank by storage × staleness to prioritize cleanup. | LOW |
+| COST_040 | Stale Table Storage Impact | Rank stale tables by storage × staleness to prioritize cleanup. Complements COST_007. | LOW |
 
 **Design constraint:** Use `TABLE_STORAGE_METRICS` and `QUERY_HISTORY` for storage
 analysis. Do not require external metadata or manual tagging. Pattern detection via
@@ -131,18 +111,18 @@ excessive_retention_min_days = 7
 ## TDD Requirements
 
 Every rule listed above requires:
-1. Unit test with mock `ACCOUNT_USAGE` data asserting correct violation generation
-2. Unit test asserting severity and category assignment
-3. Unit test asserting conventions override behavior
-4. Integration test: workload classifier produces correct classification for known
+1. [x] Unit test with mock `ACCOUNT_USAGE` data asserting correct violation generation
+2. [x] Unit test asserting severity and category assignment
+3. [x] Unit test asserting conventions override behavior
+4. [x] Integration test: workload classifier produces correct classification for known
    query distribution shapes (unimodal short, unimodal long, bimodal)
 
 ## Ship Definition
 
-1. PR with all new rules registered in `rule_registry.py`
-2. `make check` passes
-3. `rules_snapshot.yaml` updated with new rule IDs
-4. Manual: `snowfort audit scan --manifest` includes warehouse sizing findings
+1. [x] PR with all new rules registered in `rule_registry.py`
+2. [x] `make check` passes
+3. [x] `rules_snapshot.yaml` updated with new rule IDs
+4. [x] Manual: `snowfort audit scan --manifest` includes warehouse sizing findings
    with credit-denominated savings projections
 
 ## Risks
@@ -153,3 +133,14 @@ Every rule listed above requires:
 | P50 utilization requires sufficient data points | Skip warehouse if < 7 days of history, note in finding |
 | Credit-per-size table may change | Store as a convention-level constant, not magic numbers |
 | `QUERY_HISTORY` can be very large (billions of rows) | Aggregate server-side with date filter; never fetch raw rows |
+
+## Additional Work Shipped
+
+- **CI hardening (PR #11):** Added architecture-lint, sensitive-outputs, bandit, and
+  coverage gate (≥80%) as required checks. Branch protection tightened to require all
+  four checks + 1 review + linear history.
+- **Security hardening (PR #10):** Adversarial review pass fixing findings across
+  security and governance rules before enterprise rollout.
+- **Bandit false positive suppression:** 8 `# nosec` annotations with inline rationale
+  across `keypair_utils.py`, `cortex_cost.py`, `governance.py`, `security.py`,
+  `security_advanced.py`, `online_scan.py`.
