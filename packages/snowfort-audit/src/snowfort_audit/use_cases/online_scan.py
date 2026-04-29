@@ -334,11 +334,13 @@ class OnlineScanUseCase:
             excluded_all = sorted(excluded_dbs | excluded_db_like)
             active_dbs_sorted = sorted(active_dbs_upper)
             db_filter = ""
+            from snowfort_audit.domain.sql_safety import escape_string_literal
+
             if excluded_all:
-                excluded_list = ", ".join(f"'{db.replace(chr(39), chr(39) * 2)}'" for db in excluded_all)
+                excluded_list = ", ".join(f"'{escape_string_literal(db)}'" for db in excluded_all)
                 db_filter += f" AND UPPER(TABLE_CATALOG) NOT IN ({excluded_list})"
             if active_dbs_sorted:
-                active_list = ", ".join(f"'{db.replace(chr(39), chr(39) * 2)}'" for db in active_dbs_sorted)
+                active_list = ", ".join(f"'{escape_string_literal(db)}'" for db in active_dbs_sorted)
                 db_filter += f" AND UPPER(TABLE_CATALOG) IN ({active_list})"
             cur.execute(
                 "SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME, VIEW_DEFINITION"  # nosec B608 -- db_filter is built from validated catalog names from a prior Snowflake query

@@ -13,8 +13,7 @@ from snowfort_audit.domain.rule_definitions import Rule, Severity, Violation
 
 # Removed Infrastructure import
 
-# This regex IS the secret-exposure detector — flagging credential KEYWORDS in
-# user-provided SQL/YAML. The lint pattern below is a deliberate match.
+# nosec suppression below is intentional — the regex matches the same patterns bandit flags.
 _SECRET_KEYWORD_RE = re.compile(
     r'(?i)(password|pwd|private_key|secret|token)\s*[:=]\s*["\'].+["\']'
 )  # sensitive-output-ok
