@@ -111,11 +111,14 @@ from snowfort_audit.domain.rules import (
 from snowfort_audit.domain.rules.cortex_cost import get_cortex_rules
 from snowfort_audit.domain.rules.sizing import (
     AutoSuspendOptimizationCheck,
+    CloneSprawlCheck,
+    ColdStorageMigrationCheck,
     ConsolidationCandidatesCheck,
     DormantWarehouseCheck,
     ExcessiveTimeTravelRetentionCheck,
     QueryDurationAnomalyCheck,
     SavingsProjectionCheck,
+    StaleTableStorageImpactCheck,
     ThreeLayerUtilizationCheck,
     WorkloadIsolationCheck,
 )
@@ -250,6 +253,9 @@ def get_all_rules(
         SavingsProjectionCheck(conventions=conventions, telemetry=telemetry),
         DormantWarehouseCheck(conventions=conventions, telemetry=telemetry),
         ExcessiveTimeTravelRetentionCheck(conventions=conventions, telemetry=telemetry),
+        CloneSprawlCheck(conventions=conventions, telemetry=telemetry),
+        ColdStorageMigrationCheck(conventions=conventions, telemetry=telemetry),
+        StaleTableStorageImpactCheck(conventions=conventions, telemetry=telemetry),
     ]
 
 

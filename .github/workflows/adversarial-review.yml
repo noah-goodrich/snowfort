@@ -1,0 +1,66 @@
+name: Adversarial Review
+
+on:
+  pull_request:
+    paths:
+      - "packages/snowfort-audit/src/snowfort_audit/domain/rules/**"
+      - "packages/snowfort-audit/src/snowfort_audit/infrastructure/cortex*"
+      - "packages/snowfort-audit/src/snowfort_audit/use_cases/online_scan.py"
+      - "packages/snowfort-audit/src/snowfort_audit/domain/sql_safety.py"
+
+jobs:
+  adversarial-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: anthropics/claude-code-action@beta
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          model: claude-opus-4-7
+          trigger_phrase: "@claude"
+          direct_prompt: |
+            You are performing an adversarial security and quality review of the changed files
+            in this pull request. Focus exclusively on the diff — do not restate code that is
+            unchanged. Your job is to find problems, not to compliment working code.
+
+            Review for the following in order of priority:
+
+            **P0 — Data exfiltration / leakage**
+            - Does any new rule query pass user data (violation messages, resource names, column
+              values, query text) to an external LLM or third-party service without redaction?
+            - Does any `_cortex_fetcher` or similar fetcher issue a `SELECT *` against a view that
+              may contain payload columns (REQUEST_BODY, RESPONSE_BODY, PROMPT, COMPLETION, etc.)?
+            - Does any new cursor.execute() interpolate Snowflake-controlled identifiers or user
+              input via f-strings without `quote_identifier()` / `quote_fqdn()` /
+              `escape_string_literal()` from `sql_safety.py`?
+
+            **P1 — Silent failure / error swallowing**
+            - Does any new `except Exception` block end with `pass`, `return []`, or `return None`
+              without first calling `is_allowlisted_sf_error(exc)` or raising `RuleExecutionError`?
+            - Are there new allowlist entries in `_ALLOWLISTED_SWALLOW_SITES` that are not
+              justified with a one-line comment?
+
+            **P2 — Query scope / data minimisation**
+            - Does any new ACCOUNT_USAGE query lack a date filter (`DATEADD`/`CURRENT_TIMESTAMP`)?
+            - Does any new ACCOUNT_USAGE query lack a `LIMIT` clause?
+            - Does any new Cortex usage view query forget to exclude sensitive payload columns
+              via the `_discover_sensitive_columns` mechanism?
+
+            **P3 — Correctness**
+            - Do new SQL queries reference column names that are not in the schema fixture at
+              `tests/unit/fixtures/account_usage_schema.py`? Flag any column name not in the
+              fixture for the view being queried.
+            - Are there new Violation() calls that embed resource names, column values, or
+              credential-adjacent strings directly in the message (without redaction)?
+
+            Format your response as a GitHub pull request review. Use inline comments on specific
+            lines where possible. Summarise findings by severity (P0 → P3). If no issues are
+            found at a given severity level, say so explicitly. Do not generate praise.

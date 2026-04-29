@@ -9,8 +9,9 @@ This module hosts the foundation rules for Directive B:
 - COST_035: SavingsProjectionCheck — dollar-denominated downsize savings via metering
 - COST_036: DormantWarehouseCheck — zero queries for 30+ days and not suspended
 - COST_037: ExcessiveTimeTravelRetentionCheck — large, rarely-queried tables with long retention
-
-Remaining Directive B rules (COST_038/039/040) ship as follow-up PRs using the same scaffolding.
+- COST_038: CloneSprawlCheck — schemas with excessive or stale clones
+- COST_039: ColdStorageMigrationCheck — large, rarely-queried tables without clustering
+- COST_040: StaleTableStorageImpactCheck — stale tables ranked by storage impact
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from typing import TYPE_CHECKING
 from snowfort_audit.domain.conventions import SnowfortConventions, StorageThresholds, WarehouseSizingThresholds
 from snowfort_audit.domain.protocols import TelemetryPort
 from snowfort_audit.domain.rule_definitions import (
+    SQL_EXCLUDE_SYSTEM_AND_SNOWFORT,
     FindingCategory,
     Rule,
     RuleExecutionError,
@@ -607,6 +609,7 @@ class ConsolidationCandidatesCheck(Rule):
             APPROX_PERCENTILE(avg_running, 0.5) AS p50_utilization
         FROM hourly
         GROUP BY 1
+        -- Both warehouses must be < threshold/2 to form a valid pair.
         HAVING p50_utilization < {thresholds.consolidation_combined_p50_max / 2.0}
         """
         try:
@@ -731,6 +734,278 @@ class SavingsProjectionCheck(Rule):
                 )
                 violations.append(
                     self.violation(name, msg, severity=self.severity, category=FindingCategory.INFORMATIONAL)
+                )
+            return violations
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
+
+
+class CloneSprawlCheck(Rule):
+    """COST_038: Detect schemas with excessive or stale clones.
+
+    Queries TABLE_STORAGE_METRICS for tables with a non-NULL CLONE_GROUP_ID,
+    groups by schema, and flags schemas with more than ``clone_max_per_schema``
+    active clones or clones older than ``clone_stale_days``.
+    """
+
+    def __init__(
+        self,
+        conventions: SnowfortConventions | None = None,
+        telemetry: TelemetryPort | None = None,
+    ):
+        super().__init__(
+            "COST_038",
+            "Clone Sprawl",
+            Severity.LOW,
+            rationale=(
+                "Clones share storage initially but diverge over time as DML modifies either side. "
+                "Stale or forgotten clones accumulate storage charges with no analytical value. "
+                "Schemas with many active clones signal ad-hoc dev/test patterns that should use "
+                "transient tables or zero-copy sandbox tooling instead."
+            ),
+            remediation=(
+                "Review and drop stale clones: DROP TABLE <clone_name>. "
+                "For dev/test workflows, prefer TRANSIENT tables or time-limited sandbox schemas."
+            ),
+            remediation_key="DROP_STALE_CLONES",
+            telemetry=telemetry,
+        )
+        self._conventions = conventions
+
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
+        thresholds = _storage_thresholds(self._conventions)
+        query = (
+            """
+        SELECT
+            TABLE_CATALOG,
+            TABLE_SCHEMA,
+            COUNT(DISTINCT TABLE_NAME) AS clone_count,
+            DATEDIFF('DAY', MIN(CREATED), CURRENT_TIMESTAMP()) AS oldest_clone_age_days
+        FROM SNOWFLAKE.ACCOUNT_USAGE.TABLE_STORAGE_METRICS
+        WHERE CLONE_GROUP_ID IS NOT NULL
+          AND TABLE_DROPPED IS NULL
+        """
+            + SQL_EXCLUDE_SYSTEM_AND_SNOWFORT
+            + """
+        GROUP BY TABLE_CATALOG, TABLE_SCHEMA
+        """
+        )
+        try:
+            cursor.execute(query)
+            violations: list[Violation] = []
+            for row in cursor.fetchall():
+                catalog, schema = str(row[0]), str(row[1])
+                clone_count = int(row[2] or 0)
+                oldest_age = int(row[3] or 0)
+                if clone_count <= thresholds.clone_max_per_schema and oldest_age <= thresholds.clone_stale_days:
+                    continue
+                parts: list[str] = []
+                if clone_count > thresholds.clone_max_per_schema:
+                    parts.append(f"{clone_count} active clones (> {thresholds.clone_max_per_schema})")
+                if oldest_age > thresholds.clone_stale_days:
+                    parts.append(f"oldest clone is {oldest_age} days old (> {thresholds.clone_stale_days})")
+                resource = f"{catalog}.{schema}"
+                msg = f"Schema '{resource}' has clone sprawl: {'; '.join(parts)}."
+                violations.append(
+                    self.violation(resource, msg, severity=self.severity, category=FindingCategory.ACTIONABLE)
+                )
+            return violations
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
+
+
+class ColdStorageMigrationCheck(Rule):
+    """COST_039: Large, rarely-queried tables without clustering — cold storage candidates.
+
+    Joins TABLE_STORAGE_METRICS, TABLES (for CLUSTERING_KEY), and ACCESS_HISTORY to find
+    tables that are large (>= cold_table_min_bytes), have no clustering key, and were queried
+    at most cold_table_max_queries_per_week times in the last 7 days.
+    """
+
+    def __init__(
+        self,
+        conventions: SnowfortConventions | None = None,
+        telemetry: TelemetryPort | None = None,
+    ):
+        super().__init__(
+            "COST_039",
+            "Cold Storage Migration Candidate",
+            Severity.MEDIUM,
+            rationale=(
+                "Tables that are large, rarely queried, and have no clustering key are prime candidates "
+                "for cold-tier storage (e.g., Iceberg tables on external storage). These tables consume "
+                "premium Snowflake storage credits without proportional query benefit."
+            ),
+            remediation=(
+                "Evaluate migration to Iceberg table format on cheaper object storage. "
+                "If the table must stay in Snowflake, consider reducing its retention or archiving to a stage."
+            ),
+            remediation_key="MIGRATE_COLD_TABLE",
+            telemetry=telemetry,
+        )
+        self._conventions = conventions
+
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
+        thresholds = _storage_thresholds(self._conventions)
+        query = (
+            f"""
+        WITH recent_queries AS (
+            SELECT
+                COALESCE(oa.OBJECT_NAME, '') AS table_qn,
+                COUNT(*) AS q_count
+            FROM SNOWFLAKE.ACCOUNT_USAGE.ACCESS_HISTORY h,
+                 LATERAL FLATTEN(input => h.BASE_OBJECTS_ACCESSED) oa
+            WHERE h.QUERY_START_TIME >= DATEADD('DAY', -7, CURRENT_TIMESTAMP())
+            GROUP BY 1
+        )
+        SELECT
+            sm.TABLE_CATALOG || '.' || sm.TABLE_SCHEMA || '.' || sm.TABLE_NAME AS qn,
+            sm.ACTIVE_BYTES,
+            COALESCE(rq.q_count, 0) AS q_count_7d,
+            t.CLUSTERING_KEY
+        FROM SNOWFLAKE.ACCOUNT_USAGE.TABLE_STORAGE_METRICS sm
+        JOIN SNOWFLAKE.ACCOUNT_USAGE.TABLES t
+          ON t.TABLE_CATALOG = sm.TABLE_CATALOG
+         AND t.TABLE_SCHEMA = sm.TABLE_SCHEMA
+         AND t.TABLE_NAME = sm.TABLE_NAME
+        LEFT JOIN recent_queries rq
+          ON rq.table_qn = sm.TABLE_CATALOG || '.' || sm.TABLE_SCHEMA || '.' || sm.TABLE_NAME
+        WHERE sm.TABLE_DROPPED IS NULL
+          AND sm.ACTIVE_BYTES >= {thresholds.cold_table_min_bytes}
+          AND (t.CLUSTERING_KEY IS NULL OR t.CLUSTERING_KEY = '')
+        """
+            + SQL_EXCLUDE_SYSTEM_AND_SNOWFORT
+            + """
+        ORDER BY sm.ACTIVE_BYTES DESC
+        LIMIT 50
+        """
+        )
+        try:
+            cursor.execute(query)
+            violations: list[Violation] = []
+            for row in cursor.fetchall():
+                qn = str(row[0])
+                active_bytes = int(row[1] or 0)
+                q_count = int(row[2] or 0)
+                clustering_key = row[3]
+                # Python-side guards for mocked cursors.
+                if active_bytes < thresholds.cold_table_min_bytes:
+                    continue
+                if q_count > thresholds.cold_table_max_queries_per_week:
+                    continue
+                if clustering_key:
+                    continue
+                gb = active_bytes / (1024**3)
+                msg = (
+                    f"Table '{qn}' is {gb:.1f} GB with only {q_count} queries in the last 7 days "
+                    f"and no clustering key — candidate for cold storage migration."
+                )
+                violations.append(
+                    self.violation(qn, msg, severity=self.severity, category=FindingCategory.INFORMATIONAL)
+                )
+            return violations
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
+
+
+class StaleTableStorageImpactCheck(Rule):
+    """COST_040: Rank stale tables by storage impact (ACTIVE_BYTES x days idle).
+
+    Queries TABLE_STORAGE_METRICS and ACCESS_HISTORY to compute an impact score for each
+    table that hasn't been accessed recently. Tables are ranked by impact score descending,
+    surfacing the highest-value cleanup opportunities first.
+    """
+
+    def __init__(
+        self,
+        conventions: SnowfortConventions | None = None,
+        telemetry: TelemetryPort | None = None,
+    ):
+        super().__init__(
+            "COST_040",
+            "Stale Table Storage Impact",
+            Severity.LOW,
+            rationale=(
+                "Stale tables continue consuming storage credits proportional to their size. "
+                "Ranking by ACTIVE_BYTES × days_idle highlights the tables where cleanup yields "
+                "the greatest storage savings — complementing COST_007 (stale table detection) "
+                "with a cost-prioritised view."
+            ),
+            remediation=(
+                "Review the highest-impact stale tables. DROP or archive tables that are no longer needed. "
+                "For tables that must be retained, consider reducing retention or moving to cheaper storage."
+            ),
+            remediation_key="CLEANUP_STALE_TABLES",
+            telemetry=telemetry,
+        )
+        self._conventions = conventions
+
+    def check_online(
+        self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
+    ) -> list[Violation]:
+        query = (
+            """
+        WITH last_access AS (
+            SELECT
+                oa.OBJECT_NAME AS table_qn,
+                MAX(h.QUERY_START_TIME) AS last_seen
+            FROM SNOWFLAKE.ACCOUNT_USAGE.ACCESS_HISTORY h,
+                 LATERAL FLATTEN(input => h.BASE_OBJECTS_ACCESSED) oa
+            WHERE h.QUERY_START_TIME >= DATEADD('DAY', -90, CURRENT_TIMESTAMP())
+            GROUP BY 1
+        )
+        SELECT
+            sm.TABLE_CATALOG || '.' || sm.TABLE_SCHEMA || '.' || sm.TABLE_NAME AS qn,
+            sm.ACTIVE_BYTES,
+            DATEDIFF('DAY',
+                COALESCE(la.last_seen, DATEADD('DAY', -90, CURRENT_TIMESTAMP())),
+                CURRENT_TIMESTAMP()
+            ) AS days_idle,
+            sm.ACTIVE_BYTES *
+                DATEDIFF('DAY',
+                    COALESCE(la.last_seen, DATEADD('DAY', -90, CURRENT_TIMESTAMP())),
+                    CURRENT_TIMESTAMP()
+                ) AS impact_score
+        FROM SNOWFLAKE.ACCOUNT_USAGE.TABLE_STORAGE_METRICS sm
+        LEFT JOIN last_access la
+          ON la.table_qn = sm.TABLE_CATALOG || '.' || sm.TABLE_SCHEMA || '.' || sm.TABLE_NAME
+        WHERE sm.TABLE_DROPPED IS NULL
+          AND sm.ACTIVE_BYTES > 0
+          AND (la.last_seen IS NULL
+               OR la.last_seen < DATEADD('DAY', -30, CURRENT_TIMESTAMP()))
+        """
+            + SQL_EXCLUDE_SYSTEM_AND_SNOWFORT
+            + """
+        ORDER BY impact_score DESC
+        LIMIT 50
+        """
+        )
+        try:
+            cursor.execute(query)
+            violations: list[Violation] = []
+            for row in cursor.fetchall():
+                qn = str(row[0])
+                active_bytes = int(row[1] or 0)
+                days_idle = int(row[2] or 0)
+                if days_idle <= 0:
+                    continue
+                gb = active_bytes / (1024**3)
+                msg = (
+                    f"Table '{qn}' is {gb:.1f} GB and has been idle for {days_idle} days "
+                    f"(impact score: {gb * days_idle:,.0f} GB·days). Consider dropping or archiving."
+                )
+                violations.append(
+                    self.violation(qn, msg, severity=self.severity, category=FindingCategory.INFORMATIONAL)
                 )
             return violations
         except Exception as exc:
