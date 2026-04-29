@@ -341,7 +341,7 @@ class OnlineScanUseCase:
                 active_list = ", ".join(f"'{db.replace(chr(39), chr(39) * 2)}'" for db in active_dbs_sorted)
                 db_filter += f" AND UPPER(TABLE_CATALOG) IN ({active_list})"
             cur.execute(
-                "SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME, VIEW_DEFINITION"
+                "SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME, VIEW_DEFINITION"  # nosec B608 -- db_filter is built from validated catalog names from a prior Snowflake query
                 " FROM SNOWFLAKE.ACCOUNT_USAGE.VIEWS"
                 " WHERE DELETED IS NULL AND VIEW_DEFINITION IS NOT NULL"
                 "   AND LENGTH(VIEW_DEFINITION) < 1000000" + db_filter

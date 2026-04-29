@@ -32,4 +32,76 @@ jobs:
         run: mypy src/
 
       - name: Test (pytest)
-        run: pytest tests/ --cov --cov-fail-under=80
+        run: pytest tests/ --cov --cov-fail-under=85
+
+  architecture-lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/snowfort-audit
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Architecture check (pylint)
+        run: |
+          pylint \
+            --load-plugins=clean_architecture_linter \
+            --disable=all \
+            --enable=W9001,W9013,W9301,W9201,W9003,W9014 \
+            src/
+
+      - name: Silent-swallow regression (pytest)
+        run: pytest tests/unit/test_no_silent_swallow.py -v
+
+  sensitive-outputs:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/snowfort-audit
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Sensitive-outputs lint
+        run: python scripts/check_sensitive_outputs.py
+
+      - name: SQL column-name regression (pytest)
+        run: pytest tests/unit/test_sql_column_names.py -v
+
+  bandit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/snowfort-audit
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install bandit
+        run: pip install bandit[toml]
+
+      - name: Bandit security scan
+        run: |
+          bandit -r src/ \
+            --severity-level medium \
+            --confidence-level medium \
+            --skip B101,B601
