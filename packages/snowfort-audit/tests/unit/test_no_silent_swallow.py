@@ -40,6 +40,11 @@ _ALLOWLISTED_SWALLOW_SITES: frozenset[tuple[str, str]] = frozenset(
         # OPS_014 PermifrostDriftCheck loads a user-provided YAML file. A malformed
         # spec is a config error, not a Snowflake error — log + skip is correct.
         ("op_excellence.py", "_load_spec"),
+        # GOV_034 ContentPiiDetectionCheck samples each column individually.
+        # A per-column query failure (access denied, unsupported type, etc.) is
+        # skipped with `continue` so the rule can finish the remaining columns.
+        # The outer try/except still raises RuleExecutionError for non-Snowflake errors.
+        ("sensitive_data.py", "check_online"),
     }
 )
 

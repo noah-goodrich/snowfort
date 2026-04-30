@@ -373,35 +373,46 @@ class PublicGrantsCheck(Rule):
             telemetry=telemetry,
         )
 
+    _WAREHOUSE_TYPES = frozenset({"WAREHOUSE"})
+
     def check_online(
         self, cursor: SnowflakeCursorProtocol, _resource_name: str | None = None, **_kw
     ) -> list[Violation]:
-        # Check for dangerous privileges granted to PUBLIC
-        query = "SHOW GRANTS TO ROLE PUBLIC"
-        cursor.execute(query)
+        cursor.execute("SHOW GRANTS TO ROLE PUBLIC")
         grants = cursor.fetchall()
         violations = []
 
-        # Allowed/Benign privileges for PUBLIC (minimal)
-        allowed_privileges = {"USAGE"}
-
         for grant in grants:
             privilege = grant[1]
-            obj_type = grant[2]
+            obj_type = str(grant[2]).upper()
             obj_name = grant[3]
 
-            # Skip sample data and system tables
             root_db = obj_name.split(".")[0]
             if root_db in ("SNOWFLAKE", "SNOWFLAKE_SAMPLE_DATA"):
                 continue
 
-            if privilege not in allowed_privileges:
+            is_warehouse = obj_type in self._WAREHOUSE_TYPES
+
+            if is_warehouse and privilege == "USAGE":
                 violations.append(
                     self.violation(
                         f"ROLE PUBLIC ({obj_type})",
-                        f"Excessive privilege '{privilege}' on {obj_type} '{obj_name}' granted to PUBLIC.",
+                        f"Warehouse USAGE on '{obj_name}' granted to PUBLIC. "
+                        "This is common but consider restricting to specific roles.",
+                        severity=Severity.LOW,
+                        category=FindingCategory.EXPECTED,
                     )
                 )
+                continue
+
+            effective_severity = Severity.MEDIUM if is_warehouse else self.severity
+            violations.append(
+                self.violation(
+                    f"ROLE PUBLIC ({obj_type})",
+                    f"Privilege '{privilege}' on {obj_type} '{obj_name}' granted to PUBLIC.",
+                    severity=effective_severity,
+                )
+            )
         return violations
 
 
