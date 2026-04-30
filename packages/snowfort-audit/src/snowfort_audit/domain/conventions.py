@@ -168,7 +168,7 @@ class SensitiveDataThresholds:
 
 @dataclass(frozen=True)
 class CortexThresholds:
-    """Per-feature cost thresholds for Cortex governance rules (COST_016–COST_033)."""
+    """Per-feature cost thresholds for Cortex governance rules (COST_016–COST_044, CORTEX_001–007)."""
 
     daily_credit_hard_limit: float = 100.0
     daily_credit_soft_limit: float = 50.0
@@ -176,6 +176,20 @@ class CortexThresholds:
     model_allowlist_expected: tuple[str, ...] = ()
     analyst_max_requests_per_user_per_day: int = 1000
     snowflake_intelligence_max_daily_credits: float = 50.0
+    # COST_042: top N users hold > threshold fraction of total credits → flag for quota review.
+    power_user_concentration_threshold: float = 0.80
+    power_user_min_users: int = 3
+    # COST_044: month-over-month credit growth exceeding threshold for N consecutive months.
+    growth_rate_threshold: float = 0.50
+    growth_consecutive_months: int = 2
+    # CORTEX_005: fine-tuned model idle for this many days is considered wasted compute.
+    fine_tuning_unused_days: int = 30
+    # CORTEX_003: agent daily session ceiling before governance alert.
+    agent_max_daily_sessions: int = 1000
+    # CORTEX_001: search corpus size (GB) above which governance review is recommended.
+    search_corpus_size_threshold_gb: int = 10
+    # CORTEX_006: distinct LLM function types per role before sprawl is flagged.
+    function_sprawl_threshold: int = 5
 
 
 @dataclass(frozen=True)

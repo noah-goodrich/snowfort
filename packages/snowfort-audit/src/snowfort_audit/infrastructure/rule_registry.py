@@ -123,6 +123,7 @@ from snowfort_audit.domain.rules import (
     ZombieWarehouseCheck,
 )
 from snowfort_audit.domain.rules.cortex_cost import get_cortex_rules
+from snowfort_audit.domain.rules.cortex_governance import get_cortex_governance_rules
 from snowfort_audit.domain.rules.sizing import (
     AutoSuspendOptimizationCheck,
     CloneSprawlCheck,
@@ -262,8 +263,10 @@ def get_all_rules(
         MergePatternRecommendationCheck(telemetry=telemetry),
         DynamicTableComplexityCheck(telemetry=telemetry),
         AntiPatternSQLDetectionCheck(telemetry=telemetry),
-        # Cortex cost governance (D1–D6, COST_016–033)
+        # Cortex cost governance (D1–D6 + Directive F, COST_016–044)
         *get_cortex_rules(conventions=conventions, telemetry=telemetry),
+        # Cortex AI governance (Directive F, CORTEX_001–007)
+        *get_cortex_governance_rules(conventions=conventions, telemetry=telemetry),
         # Directive B — warehouse sizing + storage
         ThreeLayerUtilizationCheck(conventions=conventions, telemetry=telemetry),
         QueryDurationAnomalyCheck(conventions=conventions, telemetry=telemetry),

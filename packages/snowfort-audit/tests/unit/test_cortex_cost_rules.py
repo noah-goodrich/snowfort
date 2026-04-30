@@ -25,12 +25,16 @@ from snowfort_audit.domain.rules.cortex_cost import (
     CortexAISQLAdoptionCheck,
     CortexAnalystEnabledWithoutBudgetCheck,
     CortexAnalystPerUserQuotaCheck,
+    CortexAutoModelRoutingCheck,
     CortexCodeCLICreditSpikeCheck,
     CortexCodeCLIPerUserLimitCheck,
     CortexCodeCLIZombieUsageCheck,
     CortexDocumentProcessingSpendCheck,
+    CortexPowerUserConcentrationCheck,
+    CortexPublicAccessCheck,
     CortexSearchConsumptionBreakdownCheck,
     CortexSearchZombieServiceCheck,
+    CortexSessionGrowthTrendCheck,
     SnowflakeIntelligenceDailySpendCheck,
     SnowflakeIntelligenceGovernanceCheck,
     _cortex_fetcher,
@@ -680,9 +684,9 @@ class TestCortexDocumentProcessingSpendCheck:
 # ---------------------------------------------------------------------------
 
 
-def test_get_cortex_rules_returns_18_rules():
+def test_get_cortex_rules_returns_22_rules():
     rules = get_cortex_rules()
-    assert len(rules) == 18
+    assert len(rules) == 22
 
 
 def test_get_cortex_rules_all_have_unique_ids():
@@ -695,7 +699,7 @@ def test_get_cortex_rules_ids_in_range():
     rules = get_cortex_rules()
     for rule in rules:
         num = int(rule.id.split("_")[1])
-        assert 16 <= num <= 33, f"Rule {rule.id} out of expected range"
+        assert 16 <= num <= 44, f"Rule {rule.id} out of expected range"
 
 
 # ---------------------------------------------------------------------------
@@ -747,3 +751,268 @@ def test_cortex_fetcher_sql_uses_start_time():
     sql = cursor.execute.call_args[0][0]
     assert "START_TIME" in sql
     assert "USAGE_TIME" not in sql
+
+
+# ---------------------------------------------------------------------------
+# COST_041 CortexAutoModelRoutingCheck
+# ---------------------------------------------------------------------------
+
+
+class TestCortexAutoModelRoutingCheck:
+    def test_none_scan_context_returns_empty(self):
+        rule = CortexAutoModelRoutingCheck()
+        assert rule.check_online(_cursor_empty(), scan_context=None) == []
+
+    def test_view_unavailable_returns_empty(self):
+        telemetry = MagicMock()
+        rule = CortexAutoModelRoutingCheck(telemetry=telemetry)
+        ctx = ScanContext()
+        cursor = _make_cursor_raising(_make_allowlisted_error())
+        assert rule.check_online(cursor, scan_context=ctx) == []
+
+    def test_no_large_model_calls_no_violation(self):
+        rule = CortexAutoModelRoutingCheck()
+        # Row: (time, model_name, user, credits)
+        rows = (
+            ("2026-04-01T00:00:00", "snowflake-arctic", "USER1", 5.0),
+            ("2026-04-01T00:00:00", "mistral-7b", "USER2", 2.0),
+        )
+        ctx = _make_ctx_with_cached(rule.VIEW, rows)
+        assert rule.check_online(_cursor_empty(), scan_context=ctx) == []
+
+    def test_large_model_calls_flag_violation(self):
+        rule = CortexAutoModelRoutingCheck()
+        rows = (
+            ("2026-04-01T00:00:00", "llama3.1-405b", "USER1", 50.0),
+            ("2026-04-01T00:00:00", "snowflake-arctic", "USER2", 5.0),
+        )
+        ctx = _make_ctx_with_cached(rule.VIEW, rows)
+        result = rule.check_online(_cursor_empty(), scan_context=ctx)
+        assert len(result) == 1
+        assert "USER1" in result[0].resource_name
+
+    def test_multiple_large_model_users_flagged(self):
+        rule = CortexAutoModelRoutingCheck()
+        rows = (
+            ("2026-04-01T00:00:00", "mistral-large2", "USER1", 30.0),
+            ("2026-04-01T00:00:00", "claude-3-5-sonnet", "USER2", 20.0),
+        )
+        ctx = _make_ctx_with_cached(rule.VIEW, rows)
+        result = rule.check_online(_cursor_empty(), scan_context=ctx)
+        assert len(result) == 2
+
+    def test_unexpected_error_raises(self):
+        rule = CortexAutoModelRoutingCheck()
+
+        class ExplodingRow:
+            def __iter__(self):
+                raise RuntimeError("boom")
+
+            def __len__(self):
+                return 4
+
+            def __getitem__(self, i):
+                if i == 1:
+                    return "llama3.1-405b"
+                raise RuntimeError("boom")
+
+        ctx = _make_ctx_with_cached(rule.VIEW, (ExplodingRow(),))
+        with pytest.raises(RuleExecutionError):
+            rule.check_online(_cursor_empty(), scan_context=ctx)
+
+
+# ---------------------------------------------------------------------------
+# COST_042 CortexPowerUserConcentrationCheck
+# ---------------------------------------------------------------------------
+
+
+class TestCortexPowerUserConcentrationCheck:
+    def _conventions(self, threshold=0.80, min_users=3):
+        conv = MagicMock()
+        conv.thresholds.cortex.power_user_concentration_threshold = threshold
+        conv.thresholds.cortex.power_user_min_users = min_users
+        conv.thresholds.cortex.daily_credit_hard_limit = 100.0
+        conv.thresholds.cortex.daily_credit_soft_limit = 50.0
+        conv.thresholds.cortex.model_allowlist_expected = ()
+        conv.thresholds.cortex.analyst_max_requests_per_user_per_day = 1000
+        conv.thresholds.cortex.snowflake_intelligence_max_daily_credits = 50.0
+        conv.thresholds.cortex.growth_rate_threshold = 0.5
+        conv.thresholds.cortex.growth_consecutive_months = 2
+        conv.thresholds.cortex.fine_tuning_unused_days = 30
+        conv.thresholds.cortex.agent_max_daily_sessions = 1000
+        conv.thresholds.cortex.search_corpus_size_threshold_gb = 10
+        conv.thresholds.cortex.function_sprawl_threshold = 5
+        return conv
+
+    def test_none_scan_context_returns_empty(self):
+        rule = CortexPowerUserConcentrationCheck()
+        assert rule.check_online(_cursor_empty(), scan_context=None) == []
+
+    def test_view_unavailable_returns_empty(self):
+        rule = CortexPowerUserConcentrationCheck()
+        ctx = ScanContext()
+        cursor = _make_cursor_raising(_make_allowlisted_error())
+        assert rule.check_online(cursor, scan_context=ctx) == []
+
+    def test_even_distribution_no_violation(self):
+        conv = self._conventions(threshold=0.80, min_users=2)
+        rule = CortexPowerUserConcentrationCheck(conventions=conv)
+        # 3 users with equal credits → top 2 = 66.7% < 80%
+        rows = tuple(
+            ("2026-04-01T00:00:00", "COMPLETE", f"USER{i}", 10.0) for i in range(1, 4)
+        )
+        ctx = _make_ctx_with_cached(rule.VIEW, rows)
+        assert rule.check_online(_cursor_empty(), scan_context=ctx) == []
+
+    def test_concentrated_usage_flags_violation(self):
+        conv = self._conventions(threshold=0.80, min_users=1)
+        rule = CortexPowerUserConcentrationCheck(conventions=conv)
+        # 1 user has 90 credits, 9 others have 1 each → concentration = 90%
+        rows = (("2026-04-01T00:00:00", "COMPLETE", "BIGUSER", 90.0),)
+        rows += tuple(
+            ("2026-04-01T00:00:00", "COMPLETE", f"USER{i}", 1.0) for i in range(9)
+        )
+        ctx = _make_ctx_with_cached(rule.VIEW, rows)
+        result = rule.check_online(_cursor_empty(), scan_context=ctx)
+        assert len(result) == 1
+        assert "BIGUSER" in result[0].message
+
+    def test_empty_rows_no_violation(self):
+        rule = CortexPowerUserConcentrationCheck()
+        ctx = _make_ctx_with_cached(rule.VIEW, ())
+        assert rule.check_online(_cursor_empty(), scan_context=ctx) == []
+
+
+# ---------------------------------------------------------------------------
+# COST_043 CortexPublicAccessCheck
+# ---------------------------------------------------------------------------
+
+
+class TestCortexPublicAccessCheck:
+    def test_no_public_grant_no_violation(self):
+        rule = CortexPublicAccessCheck()
+        cursor = MagicMock()
+        # SHOW GRANTS returns rows with grantee = ANALYST_ROLE, not PUBLIC
+        cursor.fetchall.return_value = [
+            ("2026-01-01", "USAGE", "FUNCTION", "COMPLETE", "ROLE", "ANALYST_ROLE")
+        ]
+        result = rule.check_online(cursor, scan_context=None)
+        assert result == []
+
+    def test_public_grant_flags_violation(self):
+        rule = CortexPublicAccessCheck()
+        cursor = MagicMock()
+        cursor.fetchall.return_value = [
+            ("2026-01-01", "USAGE", "FUNCTION", "COMPLETE", "ROLE", "PUBLIC")
+        ]
+        result = rule.check_online(cursor, scan_context=None)
+        assert len(result) >= 1
+        assert any("PUBLIC" in v.message for v in result)
+
+    def test_function_not_available_skipped(self):
+        rule = CortexPublicAccessCheck()
+        cursor = MagicMock()
+        err = _make_allowlisted_error()
+        cursor.execute.side_effect = err
+        result = rule.check_online(cursor, scan_context=None)
+        assert result == []
+
+    def test_unexpected_error_raises(self):
+        rule = CortexPublicAccessCheck()
+        cursor = MagicMock()
+        cursor.execute.side_effect = RuntimeError("network error")
+        with pytest.raises(RuleExecutionError):
+            rule.check_online(cursor, scan_context=None)
+
+    def test_scan_context_ignored(self):
+        """COST_043 always uses direct cursor — scan_context is not used."""
+        rule = CortexPublicAccessCheck()
+        cursor = MagicMock()
+        cursor.fetchall.return_value = []
+        ctx = ScanContext()
+        result = rule.check_online(cursor, scan_context=ctx)
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
+# COST_044 CortexSessionGrowthTrendCheck
+# ---------------------------------------------------------------------------
+
+
+class TestCortexSessionGrowthTrendCheck:
+    def _conventions(self, rate=0.50, consecutive=2):
+        conv = MagicMock()
+        conv.thresholds.cortex.growth_rate_threshold = rate
+        conv.thresholds.cortex.growth_consecutive_months = consecutive
+        # other fields needed by _thresholds mock
+        for attr in (
+            "daily_credit_hard_limit",
+            "daily_credit_soft_limit",
+            "analyst_max_requests_per_user_per_day",
+            "snowflake_intelligence_max_daily_credits",
+            "power_user_concentration_threshold",
+            "power_user_min_users",
+            "fine_tuning_unused_days",
+            "agent_max_daily_sessions",
+            "search_corpus_size_threshold_gb",
+            "function_sprawl_threshold",
+        ):
+            setattr(conv.thresholds.cortex, attr, 999)
+        conv.thresholds.cortex.model_allowlist_expected = ()
+        return conv
+
+    def test_none_scan_context_returns_empty(self):
+        rule = CortexSessionGrowthTrendCheck()
+        assert rule.check_online(_cursor_empty(), scan_context=None) == []
+
+    def test_view_unavailable_returns_empty(self):
+        rule = CortexSessionGrowthTrendCheck()
+        ctx = ScanContext()
+        cursor = _make_cursor_raising(_make_allowlisted_error())
+        assert rule.check_online(cursor, scan_context=ctx) == []
+
+    def test_insufficient_months_no_violation(self):
+        rule = CortexSessionGrowthTrendCheck()
+        # Only one month of data
+        rows = (("2026-04-01", "CORTEX", 100.0),)
+        ctx = _make_ctx_with_cached(rule.VIEW, rows)
+        assert rule.check_online(_cursor_empty(), scan_context=ctx) == []
+
+    def test_sustained_growth_flags_violation(self):
+        conv = self._conventions(rate=0.50, consecutive=2)
+        rule = CortexSessionGrowthTrendCheck(conventions=conv)
+        # 3 months: 100 → 160 (+60%) → 256 (+60%) — two consecutive >50% months
+        rows = (
+            ("2026-02-01", "CORTEX_AI", 100.0),
+            ("2026-03-01", "CORTEX_AI", 160.0),
+            ("2026-04-01", "CORTEX_AI", 256.0),
+        )
+        ctx = _make_ctx_with_cached(rule.VIEW, rows)
+        result = rule.check_online(_cursor_empty(), scan_context=ctx)
+        assert len(result) == 1
+        assert "2026-02" in result[0].message or "2026-03" in result[0].message
+
+    def test_single_spike_no_violation(self):
+        conv = self._conventions(rate=0.50, consecutive=2)
+        rule = CortexSessionGrowthTrendCheck(conventions=conv)
+        # Spike then flat — not two consecutive months
+        rows = (
+            ("2026-02-01", "CORTEX_AI", 100.0),
+            ("2026-03-01", "CORTEX_AI", 200.0),  # +100%
+            ("2026-04-01", "CORTEX_AI", 210.0),  # +5% — resets counter
+        )
+        ctx = _make_ctx_with_cached(rule.VIEW, rows)
+        assert rule.check_online(_cursor_empty(), scan_context=ctx) == []
+
+    def test_non_cortex_service_ignored(self):
+        conv = self._conventions(rate=0.50, consecutive=2)
+        rule = CortexSessionGrowthTrendCheck(conventions=conv)
+        # Warehouse credits — should be filtered out
+        rows = (
+            ("2026-02-01", "WAREHOUSE_METERING", 100.0),
+            ("2026-03-01", "WAREHOUSE_METERING", 200.0),
+            ("2026-04-01", "WAREHOUSE_METERING", 400.0),
+        )
+        ctx = _make_ctx_with_cached(rule.VIEW, rows)
+        assert rule.check_online(_cursor_empty(), scan_context=ctx) == []
+
