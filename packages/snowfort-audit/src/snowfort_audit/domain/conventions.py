@@ -112,6 +112,61 @@ class StorageThresholds:
 
 
 @dataclass(frozen=True)
+class RbacThresholds:
+    """Thresholds for RBAC topology rules (Directive C)."""
+
+    max_account_admins: int = 3
+    god_role_privilege_threshold: int = 50
+    god_role_database_span: int = 3
+    privilege_concentration_gini_threshold: float = 0.80
+    max_direct_roles_per_user: int = 10
+    orphan_role_percent_threshold: int = 20
+    # Regex patterns for role hierarchy layers (configurable, not hard-coded).
+    dbo_role_pattern: str = r"(?i).*_(OWNER|DBO|DDL)$"
+    functional_role_pattern: str = r"(?i).*_(READ|WRITE|TRANSFORM|ANALYST)$"
+    business_role_pattern: str = r"(?i).*_(TEAM|DEPT|BU)$"
+
+
+@dataclass(frozen=True)
+class ColumnPatternDef:
+    """A single column-name pattern and the sensitivity category it represents."""
+
+    pattern: str
+    category: str
+
+
+@dataclass(frozen=True)
+class SensitiveDataThresholds:
+    """Thresholds and patterns for sensitive data detection (Directive D, GOV_030–034)."""
+
+    # Column-name patterns that suggest sensitive data (case-insensitive substring match).
+    column_patterns: tuple[ColumnPatternDef, ...] = (
+        ColumnPatternDef(r"(?i)(^|_)ssn(_|$)", "PII_SSN"),
+        ColumnPatternDef(r"(?i)(^|_)email(_|$)", "PII_EMAIL"),
+        ColumnPatternDef(r"(?i)(^|_)phone(_|$)", "PII_PHONE"),
+        ColumnPatternDef(r"(?i)(^|_)(dob|date_of_birth|birth_date)(_|$)", "PII_DOB"),
+        ColumnPatternDef(r"(?i)(^|_)salary(_|$)", "PII_SALARY"),
+        ColumnPatternDef(r"(?i)(^|_)(credit_card|card_number|cc_num)(_|$)", "PCI_CARD"),
+        ColumnPatternDef(r"(?i)(^|_)passport(_|$)", "PII_PASSPORT"),
+        ColumnPatternDef(r"(?i)(^|_)(password|passwd|pwd)(_|$)", "SECRET_PASSWORD"),
+        ColumnPatternDef(r"(?i)(^|_)(address|addr)(_|$)", "PII_ADDRESS"),
+        ColumnPatternDef(r"(?i)(^|_)(ip_addr|ip_address|ipaddr)(_|$)", "PII_IP"),
+    )
+    # Minimum number of sensitive columns in a table to trigger GOV_030 (unmasked).
+    min_sensitive_columns_unmasked: int = 1
+    # Minimum number of sensitive columns in a table to trigger GOV_031 (untagged).
+    min_sensitive_columns_untagged: int = 1
+    # Row-access policy absent: minimum sensitive column count to trigger GOV_032.
+    min_sensitive_columns_no_row_policy: int = 3
+    # GOV_033: maximum number of distinct roles that may SELECT from a sensitive table.
+    max_roles_accessing_sensitive_table: int = 10
+    # GOV_034: sample-based content scanning (opt-in, disabled by default).
+    enable_content_sampling: bool = False
+    # Number of rows to sample when content scanning is enabled.
+    content_sample_rows: int = 100
+
+
+@dataclass(frozen=True)
 class CortexThresholds:
     """Per-feature cost thresholds for Cortex governance rules (COST_016–COST_033)."""
 
@@ -138,6 +193,8 @@ class RuleThresholdConventions:
     cortex: CortexThresholds = field(default_factory=CortexThresholds)
     warehouse_sizing: WarehouseSizingThresholds = field(default_factory=WarehouseSizingThresholds)
     storage: StorageThresholds = field(default_factory=StorageThresholds)
+    rbac: RbacThresholds = field(default_factory=RbacThresholds)
+    sensitive_data: SensitiveDataThresholds = field(default_factory=SensitiveDataThresholds)
 
 
 @dataclass(frozen=True)

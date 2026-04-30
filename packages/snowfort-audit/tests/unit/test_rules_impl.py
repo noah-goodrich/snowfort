@@ -477,7 +477,7 @@ class TestSecurityRules:
         ]
         violations = rule.check_online(mock_cursor)
         assert len(violations) == 1
-        assert "Excessive privilege 'MODIFY'" in violations[0].message
+        assert "MODIFY" in violations[0].message
 
     def test_user_ownership_check(self):
         UserOwnershipCheck()

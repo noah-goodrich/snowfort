@@ -73,6 +73,11 @@ GOV_006: []
 GOV_007: []
 GOV_008: []
 GOV_009: []
+GOV_030: []
+GOV_031: []
+GOV_032: []
+GOV_033: []
+GOV_034: []
 OPS_001:
 - message: Object has ZERO tags. Governance failure.
   resource: Database 'MY_APP_DB'
@@ -152,10 +157,17 @@ REL_007: []
 REL_008: []
 REL_009: []
 REL_010: []
-SEC_001:
-- message: 'Too few ACCOUNTADMINs: only 0 detected. Recommend at least 2 for redundancy.'
+SEC_001a:
+- message: 'Too few ACCOUNTADMINs: only 0 detected. Recommend at least 2 for break-glass
+    redundancy.'
   resource: Account
   severity: MEDIUM
+SEC_001b: []
+SEC_001c:
+- message: User default_role is 'ACCOUNTADMIN'; every session starts with admin privileges.
+  resource: ADMIN
+  severity: HIGH
+SEC_001d: []
 SEC_002: []
 SEC_003:
 - message: No Account-level Network Policy set
@@ -219,6 +231,16 @@ SEC_020: []
 SEC_021: []
 SEC_022: []
 SEC_023: []
+SEC_024:
+- message: Orphan role ratio is 100% (2/2 custom roles) — exceeds threshold of 20%.
+    Review and drop unused roles to reduce RBAC sprawl.
+  resource: Account
+  severity: LOW
+SEC_025: []
+SEC_026: []
+SEC_027: []
+SEC_028: []
+SEC_029: []
 SQL_001: []
 STAT_001: []
 STAT_002: []

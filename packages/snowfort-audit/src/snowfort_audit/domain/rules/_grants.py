@@ -32,6 +32,9 @@ GTU_ROLE = 1
 # Admin-equivalent roles for RBAC blast-radius computation.
 ADMIN_ROLES = frozenset({"ACCOUNTADMIN", "SECURITYADMIN", "SYSADMIN"})
 
+# GTR_GRANTED_ON value for role-to-role grants.
+GTR_GRANTED_ON_ROLE = "ROLE"
+
 
 def gtr_fetcher(cursor: SnowflakeCursorProtocol):
     """Return a get_or_fetch-compatible fetcher for GRANTS_TO_ROLES.
@@ -85,15 +88,7 @@ def admin_role_user_counts(
         Mapping from "ACCOUNTADMIN"/"SECURITYADMIN"/"SYSADMIN" to the set of
         users who can reach that admin role via any path.
     """
-    # Build role-containment graph: role -> roles it inherits.
-    # When GRANTED_ON='ROLE', NAME was granted TO GRANTEE_NAME, meaning
-    # GRANTEE_NAME "contains"/inherits NAME.
-    role_contains: dict[str, list[str]] = {}
-    for row in gtr:
-        if str(row[GTR_GRANTED_ON]).upper() == "ROLE":
-            parent = str(row[GTR_GRANTEE_NAME]).upper()
-            child = str(row[GTR_NAME]).upper()
-            role_contains.setdefault(parent, []).append(child)
+    role_contains = build_role_graph(gtr)
 
     # Group users by their directly-assigned roles (from GRANTS_TO_USERS).
     user_direct_roles: dict[str, set[str]] = {}
@@ -120,6 +115,37 @@ def admin_role_user_counts(
                     queue.append(inherited)
 
     return result
+
+
+def build_role_graph(gtr: "tuple[Row, ...]") -> "dict[str, list[str]]":
+    """Build a role-containment graph from GTR rows.
+
+    Returns a mapping of parent_role → [child roles it inherits].
+    Only GRANTED_ON='ROLE' rows are included (role-to-role grants).
+    Keys and values are upper-cased for consistent lookup.
+    """
+    graph: dict[str, list[str]] = {}
+    for row in gtr:
+        if str(row[GTR_GRANTED_ON]).upper() == GTR_GRANTED_ON_ROLE:
+            parent = str(row[GTR_GRANTEE_NAME]).upper()
+            child = str(row[GTR_NAME]).upper()
+            graph.setdefault(parent, []).append(child)
+    return graph
+
+
+def role_privilege_counts(gtr: "tuple[Row, ...]") -> "dict[str, int]":
+    """Count non-ROLE object-level privilege grants per role.
+
+    Excludes role-to-role rows (GRANTED_ON='ROLE').  Counts each
+    distinct (grantee_role, privilege, name, catalog) row once.
+    Returns a mapping of upper-cased role name → grant count.
+    """
+    counts: dict[str, int] = {}
+    for row in gtr:
+        if str(row[GTR_GRANTED_ON]).upper() != GTR_GRANTED_ON_ROLE:
+            role = str(row[GTR_GRANTEE_NAME]).upper()
+            counts[role] = counts.get(role, 0) + 1
+    return counts
 
 
 def admin_users_from_context(cursor: "SnowflakeCursorProtocol", scan_context) -> set[str]:

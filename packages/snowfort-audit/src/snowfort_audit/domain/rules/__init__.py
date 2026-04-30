@@ -55,6 +55,18 @@ from snowfort_audit.domain.rules.perf import (
     WarehouseWorkloadIsolationCheck,
 )
 from snowfort_audit.domain.rules.perf_extensions import CacheContentionCheck
+from snowfort_audit.domain.rules.rbac import (
+    AdminAsDefaultRoleCheck,
+    AdminGrantCountCheck,
+    DormantAdminAccountsCheck,
+    GodRoleDetectionCheck,
+    IncompleteDepartmentRolesCheck,
+    LegacyIdentityDuplicationCheck,
+    OrphanRoleRatioCheck,
+    PrivilegeConcentrationCheck,
+    RoleFlowValidationCheck,
+    UserRoleExplosionCheck,
+)
 from snowfort_audit.domain.rules.reliability import (
     AdequateTimeTravelRetentionCheck,
     DynamicTableFailureDetectionCheck,
@@ -98,6 +110,13 @@ from snowfort_audit.domain.rules.security_advanced import (
     SnowparkContainerServicesSecurityCheck,
     TrustCenterExtensionsCheck,
 )
+from snowfort_audit.domain.rules.sensitive_data import (
+    ContentPiiDetectionCheck,
+    NoRowPolicyOnSensitiveTableCheck,
+    OverPermissiveSensitiveAccessCheck,
+    UnmaskedSensitiveColumnsCheck,
+    UntaggedSensitiveColumnsCheck,
+)
 from snowfort_audit.domain.rules.static import (
     AntiPatternSQLDetectionCheck,
     DynamicTableComplexityCheck,
@@ -113,9 +132,20 @@ from snowfort_audit.domain.rules.workload import SpillingMemoryCheck, WorkloadEf
 
 __all__ = [
     "AccountBudgetEnforcement",
+    "AdminAsDefaultRoleCheck",
     "AdminExposureCheck",
+    "AdminGrantCountCheck",
+    "ContentPiiDetectionCheck",
     "CrossRegionInferenceCheck",
+    "DormantAdminAccountsCheck",
+    "GodRoleDetectionCheck",
     "IcebergTableGovernanceCheck",
+    "IncompleteDepartmentRolesCheck",
+    "LegacyIdentityDuplicationCheck",
+    "OrphanRoleRatioCheck",
+    "PrivilegeConcentrationCheck",
+    "RoleFlowValidationCheck",
+    "UserRoleExplosionCheck",
     "AdequateTimeTravelRetentionCheck",
     "AggressiveAutoSuspendCheck",
     "AlertConfigurationCheck",
@@ -152,10 +182,12 @@ __all__ = [
     "MaskingPolicyCoverageExtendedCheck",
     "MergePatternRecommendationCheck",
     "OutboundShareRiskCheck",
+    "OverPermissiveSensitiveAccessCheck",
     "MFAEnforcementCheck",
     "MultiClusterSafeguardCheck",
     "NakedDropCheck",
     "NetworkPerimeterCheck",
+    "NoRowPolicyOnSensitiveTableCheck",
     "NotificationIntegrationCheck",
     "ObjectCommentCheck",
     "ObjectDocumentationCheck",
@@ -202,6 +234,8 @@ __all__ = [
     "StagingTableTypeOptimizationCheck",
     "StaleTableDetectionCheck",
     "UnderutilizedWarehouseCheck",
+    "UnmaskedSensitiveColumnsCheck",
+    "UntaggedSensitiveColumnsCheck",
     "UnusedMaterializedViewCheck",
     "UserOwnershipCheck",
     "WarehouseWorkloadIsolationCheck",
