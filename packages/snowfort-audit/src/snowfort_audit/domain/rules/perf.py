@@ -25,6 +25,9 @@ from snowfort_audit.domain.scan_context import (
 CLUSTERING_DEPTH_THRESHOLD = 2.0
 ONE_TB_BYTES = 1099511627776
 
+# WAF: do not define a cluster key with more than this many expressions.
+_MAX_CLUSTERING_KEY_EXPRESSIONS = 4
+
 
 if TYPE_CHECKING:
     from snowfort_audit._vendor.protocols import SnowflakeCursorProtocol
@@ -370,8 +373,8 @@ class ClusteringKeyQualityCheck(Rule):
                 msg_parts = []
                 # Count expressions (comma-separated, but watch for function args)
                 expr_count = key.count(",") + 1
-                if expr_count > 4:
-                    msg_parts.append(f"more than 4 expressions ({expr_count})")
+                if expr_count > _MAX_CLUSTERING_KEY_EXPRESSIONS:
+                    msg_parts.append(f"more than {_MAX_CLUSTERING_KEY_EXPRESSIONS} expressions ({expr_count})")
                 if "MOD(" in key:
                     msg_parts.append("uses MOD() (anti-pattern)")
                 if msg_parts:

@@ -18,6 +18,9 @@ _SECRET_KEYWORD_RE = re.compile(
     r'(?i)(password|pwd|private_key|secret|token)\s*[:=]\s*["\'].+["\']'
 )  # sensitive-output-ok
 
+# WAF: keep JOIN count minimal in dynamic-table definitions, ideally no more than this.
+_MAX_DYNAMIC_TABLE_JOINS = 5
+
 
 class HardcodedEnvCheck(Rule):
     """STAT_001: Flag SQL containing hardcoded _DEV, _PROD suffixes."""
@@ -239,12 +242,12 @@ class DynamicTableComplexityCheck(Rule):
         if "CREATE DYNAMIC TABLE" not in file_content.upper():
             return []
         join_count = len(re.findall(r"\bJOIN\s+", file_content, re.IGNORECASE))
-        if join_count > 5:
+        if join_count > _MAX_DYNAMIC_TABLE_JOINS:
             violations.append(
                 Violation(
                     self.id,
                     file_path,
-                    f"Dynamic table definition has {join_count} JOINs; WAF recommends ≤5.",
+                    f"Dynamic table definition has {join_count} JOINs; WAF recommends ≤{_MAX_DYNAMIC_TABLE_JOINS}.",
                     self.severity,
                     remediation_key=self.remediation_key,
                 )

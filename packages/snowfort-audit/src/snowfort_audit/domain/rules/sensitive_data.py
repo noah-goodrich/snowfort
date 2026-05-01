@@ -44,6 +44,9 @@ if TYPE_CHECKING:
 _STATIC_WINDOW = 0  # no time filter — fetch all active (non-deleted) rows
 _ACCESS_WINDOW = 7  # 7-day lookback for ACCESS_HISTORY
 
+# Maximum role names to enumerate in over-permissive-access violation messages.
+_ROLE_DISPLAY_LIMIT = 10
+
 # ---------------------------------------------------------------------------
 # Named column indices for ACCOUNT_USAGE.COLUMNS
 # SQL: SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE
@@ -574,8 +577,8 @@ class OverPermissiveSensitiveAccessCheck(_SensitiveDataBase):
                             f"{catalog}.{table}",
                             f"Sensitive table {catalog}.{table} is accessible by {len(roles)} "
                             f"roles (threshold: {max_roles}). Roles: "
-                            + ", ".join(sorted(roles)[:10])
-                            + ("..." if len(roles) > 10 else "."),
+                            + ", ".join(sorted(roles)[:_ROLE_DISPLAY_LIMIT])
+                            + ("..." if len(roles) > _ROLE_DISPLAY_LIMIT else "."),
                         )
                     )
             return violations

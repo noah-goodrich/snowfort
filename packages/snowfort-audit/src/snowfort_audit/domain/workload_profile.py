@@ -25,6 +25,10 @@ _CREDIT_PER_HOUR: dict[str, int] = {
     "6X-LARGE": 512,
 }
 
+# Workloads that run long queries within a narrow active window are ETL;
+# long queries running all day are BATCH.
+_ETL_MAX_ACTIVE_HOURS = 3
+
 
 def size_credit_rate(size: str) -> int:
     """Credits per hour for a given warehouse size, or 1 for unknown sizes."""
@@ -78,9 +82,7 @@ def classify_workload(
         return WorkloadClass.INTERACTIVE
 
     if p50_seconds >= long_p50_seconds:
-        # Long queries in a narrow active window → ETL; long queries running
-        # all day → BATCH.
-        if active_hours is not None and active_hours <= 3:
+        if active_hours is not None and active_hours <= _ETL_MAX_ACTIVE_HOURS:
             return WorkloadClass.ETL
         return WorkloadClass.BATCH
 

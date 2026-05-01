@@ -18,7 +18,7 @@ from textual.containers import VerticalScroll
 from textual.widgets import Footer, Header, ListItem, ListView, Static
 
 from snowfort_audit.domain.guided import group_violations_by_concept
-from snowfort_audit.domain.results import AuditResult
+from snowfort_audit.domain.results import GRADE_A_MIN, GRADE_C_MIN, AuditResult
 from snowfort_audit.domain.rule_definitions import (
     PILLAR_DISPLAY_ORDER,
     Rule,
@@ -34,9 +34,9 @@ _SEV_ORDER: tuple[Severity, ...] = (Severity.CRITICAL, Severity.HIGH, Severity.M
 
 def _bar(value: float, width: int = 20) -> str:
     filled = round(value / 100 * width)
-    if value >= 90:
+    if value >= GRADE_A_MIN:
         color = "green"
-    elif value >= 70:
+    elif value >= GRADE_C_MIN:
         color = "yellow"
     else:
         color = "red"

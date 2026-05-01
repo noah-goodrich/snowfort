@@ -15,16 +15,24 @@ from snowfort_audit.domain.rule_definitions import (
 # overall score in the 55-65 range (D/C boundary).
 _LOG_DAMPENING_K = 10.0
 
+# Score thresholds for letter grades. Exposed so UI layers (CLI report, TUI)
+# can derive their colour boundaries from the same policy values rather than
+# duplicating the cutoffs.
+GRADE_A_MIN: float = 90.0
+GRADE_B_MIN: float = 80.0
+GRADE_C_MIN: float = 70.0
+GRADE_D_MIN: float = 60.0
+
 
 def _score_to_grade(score: float) -> str:
     """Map 0-100 score to letter grade."""
-    if score >= 90:
+    if score >= GRADE_A_MIN:
         return "A"
-    if score >= 80:
+    if score >= GRADE_B_MIN:
         return "B"
-    if score >= 70:
+    if score >= GRADE_C_MIN:
         return "C"
-    if score >= 60:
+    if score >= GRADE_D_MIN:
         return "D"
     return "F"
 
