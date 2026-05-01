@@ -96,9 +96,10 @@ The audit tool’s role is to **diagnose** (scan, report, export findings). Down
 | — | Rename `rules` → `catalog` | Optional | Product/UX preference |
 | 1 | Monorepo & fix commands rationale | Doc only | README/roadmap cleanup for fix; fixes = IaC via admin/scaffold |
 | 2 | Cortex Code Skill using snowfort | **Done (v0.4.0)** | `.cortex/skills/snowfort-audit/SKILL.md` ships in repo |
+| 2b | Interactive Remediation Skill | **Directive written** | See [interactive-remediation-skill.md](plans/directives/interactive-remediation-skill.md) — passive SKILL.md done; interactive session skill pending |
 | 3 | Cortex call for executive summary report | **Done (v0.4.0)** | `CortexSummary` dataclass; `cortex_summary:` block in YAML; `CortexSynthesizer.summarize_structured()` |
-| 4 | Monorepo migration + PyPI deployment | Deferred | See [MONOREPO_AND_PYPI.md](MONOREPO_AND_PYPI.md) |
+| 4 | Monorepo migration + PyPI deployment | **In progress** | Monorepo done; build artifacts ready; CI workflow in place; PyPI trusted publishing configured |
 
 ---
 
-*Last updated: 2026-04-09 (v0.4.0: F1 Cortex Code Skill + F2 CortexSummary YAML export shipped).*
+*Last updated: 2026-05-01 (rule ID duplicates resolved; interactive remediation directive drafted; PyPI build artifacts ready).*
