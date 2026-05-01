@@ -858,9 +858,7 @@ class TestCortexPowerUserConcentrationCheck:
         conv = self._conventions(threshold=0.80, min_users=2)
         rule = CortexPowerUserConcentrationCheck(conventions=conv)
         # 3 users with equal credits → top 2 = 66.7% < 80%
-        rows = tuple(
-            ("2026-04-01T00:00:00", "COMPLETE", f"USER{i}", 10.0) for i in range(1, 4)
-        )
+        rows = tuple(("2026-04-01T00:00:00", "COMPLETE", f"USER{i}", 10.0) for i in range(1, 4))
         ctx = _make_ctx_with_cached(rule.VIEW, rows)
         assert rule.check_online(_cursor_empty(), scan_context=ctx) == []
 
@@ -869,13 +867,11 @@ class TestCortexPowerUserConcentrationCheck:
         rule = CortexPowerUserConcentrationCheck(conventions=conv)
         # 1 user has 90 credits, 9 others have 1 each → concentration = 90%
         rows = (("2026-04-01T00:00:00", "COMPLETE", "BIGUSER", 90.0),)
-        rows += tuple(
-            ("2026-04-01T00:00:00", "COMPLETE", f"USER{i}", 1.0) for i in range(9)
-        )
+        rows += tuple(("2026-04-01T00:00:00", "COMPLETE", f"USER{i}", 1.0) for i in range(9))
         ctx = _make_ctx_with_cached(rule.VIEW, rows)
         result = rule.check_online(_cursor_empty(), scan_context=ctx)
         assert len(result) == 1
-        assert "BIGUSER" in result[0].message
+        assert "91%" in result[0].message  # concentration % is present; username is intentionally omitted (PII)
 
     def test_empty_rows_no_violation(self):
         rule = CortexPowerUserConcentrationCheck()
@@ -893,18 +889,14 @@ class TestCortexPublicAccessCheck:
         rule = CortexPublicAccessCheck()
         cursor = MagicMock()
         # SHOW GRANTS returns rows with grantee = ANALYST_ROLE, not PUBLIC
-        cursor.fetchall.return_value = [
-            ("2026-01-01", "USAGE", "FUNCTION", "COMPLETE", "ROLE", "ANALYST_ROLE")
-        ]
+        cursor.fetchall.return_value = [("2026-01-01", "USAGE", "FUNCTION", "COMPLETE", "ROLE", "ANALYST_ROLE")]
         result = rule.check_online(cursor, scan_context=None)
         assert result == []
 
     def test_public_grant_flags_violation(self):
         rule = CortexPublicAccessCheck()
         cursor = MagicMock()
-        cursor.fetchall.return_value = [
-            ("2026-01-01", "USAGE", "FUNCTION", "COMPLETE", "ROLE", "PUBLIC")
-        ]
+        cursor.fetchall.return_value = [("2026-01-01", "USAGE", "FUNCTION", "COMPLETE", "ROLE", "PUBLIC")]
         result = rule.check_online(cursor, scan_context=None)
         assert len(result) >= 1
         assert any("PUBLIC" in v.message for v in result)
@@ -1015,4 +1007,3 @@ class TestCortexSessionGrowthTrendCheck:
         )
         ctx = _make_ctx_with_cached(rule.VIEW, rows)
         assert rule.check_online(_cursor_empty(), scan_context=ctx) == []
-

@@ -44,6 +44,18 @@ ACCOUNT_USAGE_SCHEMA: dict[str, frozenset[str]] = {
             "CREDITS_USED_CLOUD_SERVICES",
         }
     ),
+    # Verified from: https://docs.snowflake.com/en/sql-reference/account-usage/metering_daily_history
+    "METERING_DAILY_HISTORY": frozenset(
+        {
+            "USAGE_DATE",
+            "SERVICE_TYPE",
+            "CREDITS_USED",
+            "CREDITS_USED_COMPUTE",
+            "CREDITS_USED_CLOUD_SERVICES",
+            "CREDITS_ADJUSTMENT_CLOUD_SERVICES",
+            "CREDITS_BILLED",
+        }
+    ),
     # Verified from: https://docs.snowflake.com/en/sql-reference/account-usage/warehouse_load_history
     "WAREHOUSE_LOAD_HISTORY": frozenset(
         {
@@ -311,6 +323,8 @@ CORTEX_USAGE_VIEWS: dict[str, str] = {
     "CORTEX_ANALYST_USAGE_HISTORY": "START_TIME",
     "CORTEX_DOCUMENT_PROCESSING_USAGE_HISTORY": "START_TIME",
     "CORTEX_SEARCH_DAILY_USAGE_HISTORY": "USAGE_DATE",
+    # METERING_DAILY_HISTORY is a general ACCOUNT_USAGE view used by COST_044 and CORTEX_007
+    "METERING_DAILY_HISTORY": "USAGE_DATE",
 }
 
 # ---------------------------------------------------------------------------

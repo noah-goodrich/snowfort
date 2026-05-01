@@ -31,6 +31,7 @@ from snowfort_audit.domain.rule_definitions import (
     is_allowlisted_sf_error,
 )
 from snowfort_audit.domain.rule_family import ParameterizedRuleFamily
+from snowfort_audit.domain.sql_safety import is_safe_unquoted_identifier
 
 if TYPE_CHECKING:
     from snowfort_audit._vendor.protocols import SnowflakeCursorProtocol
@@ -40,6 +41,23 @@ if TYPE_CHECKING:
 # Cache key window — 30-day lookback used by all Cortex rules.
 # ---------------------------------------------------------------------------
 CORTEX_WINDOW_DAYS = 30
+
+# ---------------------------------------------------------------------------
+# Known Cortex AI service type values in METERING_DAILY_HISTORY.SERVICE_TYPE.
+# Verified from Snowflake documentation. Used by COST_044 and CORTEX_007 to
+# avoid the false-positive risk of broad substring checks like "AI" in name.
+# ---------------------------------------------------------------------------
+_CORTEX_METERING_SERVICE_TYPES: frozenset[str] = frozenset(
+    {
+        "CORTEX_AI",
+        "CORTEX_FUNCTIONS",
+        "CORTEX_SEARCH",
+        "CORTEX_ANALYST",
+        "CORTEX_AGENT",
+        "CORTEX_FINE_TUNING",
+        "AI_SERVICES",
+    }
+)
 
 
 # Columns in any Cortex usage view that are known to carry literal user-provided
@@ -1472,7 +1490,7 @@ class CortexAutoModelRoutingCheck(_CortexRule):
         return [
             self.violation(
                 user,
-                f"User '{user}' explicitly called large Cortex models consuming {credits:.1f} credits "
+                f"Large Cortex model calls from one user consumed {credits:.1f} credits "
                 "in 30 days. Consider enabling auto-routing to reduce costs.",
             )
             for user, credits in sorted(large_model_by_user.items(), key=lambda x: -x[1])
@@ -1552,11 +1570,10 @@ class CortexPowerUserConcentrationCheck(_CortexRule):
         concentration = top_n_credits / total
         if concentration < thresholds.power_user_concentration_threshold:
             return []
-        top_names = ", ".join(u for u, _ in top_n)
         return [
             self.violation(
                 "Account",
-                f"Top {len(top_n)} user(s) ({top_names}) account for "
+                f"The top {len(top_n)} user(s) account for "
                 f"{concentration:.0%} of Cortex credits ({top_n_credits:.1f}/{total:.1f}), "
                 f"exceeding the concentration threshold "
                 f"({thresholds.power_user_concentration_threshold:.0%}). "
@@ -1603,8 +1620,15 @@ class CortexPublicAccessCheck(Rule):
         violations: list[Violation] = []
         try:
             for fn_name, fn_args in _CORTEX_PUBLIC_FUNCTIONS:
+                # Verify the constant parts are unquoted-identifier-safe before interpolation.
+                # All parts are hardcoded (not user input), so this assertion catches
+                # accidental future edits that introduce unsafe values.
+                fn_parts = fn_name.split(".")
+                assert all(is_safe_unquoted_identifier(p) for p in fn_parts), (  # noqa: S101
+                    f"_CORTEX_PUBLIC_FUNCTIONS contains unsafe identifier component: {fn_name}"
+                )
                 try:
-                    cursor.execute(f"SHOW GRANTS ON FUNCTION {fn_name}({fn_args})")  # nosec B608 -- fn_name/fn_args are validated internal constants, not user input
+                    cursor.execute(f"SHOW GRANTS ON FUNCTION {fn_name}({fn_args})")  # nosec B608 -- fn_name/fn_args are hardcoded constants verified by is_safe_unquoted_identifier above
                     grants = cursor.fetchall()
                 except Exception as exc:
                     if is_allowlisted_sf_error(exc):
@@ -1676,7 +1700,7 @@ class CortexSessionGrowthTrendCheck(_CortexRule):
             if len(row) < 2:
                 continue
             service_type = str(row[1]).upper() if row[1] else ""
-            if "CORTEX" not in service_type and "AI" not in service_type:
+            if service_type not in _CORTEX_METERING_SERVICE_TYPES:
                 continue
             usage_date = str(row[0])[:7] if row[0] else ""
             if not usage_date:
@@ -1746,7 +1770,7 @@ class CortexSessionGrowthTrendCheck(_CortexRule):
             self.violation(
                 "Account",
                 f"Cortex credits grew by ≥{thresholds.growth_rate_threshold:.0%} "
-                f"month-over-month for {consecutive} consecutive months ({span}). "
+                f"month-over-month for {len(growth_months)} consecutive months ({span}). "
                 "Review workload growth against current budget allocations.",
             )
         ]
