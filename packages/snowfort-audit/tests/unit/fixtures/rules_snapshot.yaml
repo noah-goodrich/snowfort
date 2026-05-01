@@ -1,3 +1,10 @@
+CORTEX_001: []
+CORTEX_002: []
+CORTEX_003: []
+CORTEX_004: []
+CORTEX_005: []
+CORTEX_006: []
+CORTEX_007: []
 COST_001:
 - message: Auto-suspend 600s exceeds Snowfort convention (30s).
   resource: BAD_COST_WH
@@ -62,6 +69,10 @@ COST_037: []
 COST_038: []
 COST_039: []
 COST_040: []
+COST_041: []
+COST_042: []
+COST_043: []
+COST_044: []
 GOV_001: []
 GOV_002: []
 GOV_003:

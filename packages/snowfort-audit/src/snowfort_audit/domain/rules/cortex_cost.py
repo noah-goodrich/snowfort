@@ -1383,6 +1383,376 @@ _TAG_COVERAGE_FACTORY_DEMO: list[Rule] = ParameterizedRuleFamily(
 
 
 # ===========================================================================
+# D8 — Directive F cost rules (COST_041–044)
+# ===========================================================================
+
+# Large Cortex models — explicit calls to these suggest auto-routing is not enabled.
+_LARGE_CORTEX_MODELS: frozenset[str] = frozenset(
+    {
+        "llama3.1-405b",
+        "llama3.1-405b-v1",
+        "mistral-large2",
+        "claude-3-5-sonnet",
+        "claude-3-5-sonnet-20241022",
+        "claude-3-7-sonnet",
+        "claude-3-7-sonnet-20250219",
+    }
+)
+
+# All public Cortex LLM function signatures eligible for PUBLIC-role grant checks.
+_CORTEX_PUBLIC_FUNCTIONS: tuple[tuple[str, str], ...] = (
+    ("SNOWFLAKE.CORTEX.COMPLETE", "VARCHAR, VARCHAR"),
+    ("SNOWFLAKE.CORTEX.SUMMARIZE", "VARCHAR"),
+    ("SNOWFLAKE.CORTEX.TRANSLATE", "VARCHAR, VARCHAR, VARCHAR"),
+    ("SNOWFLAKE.CORTEX.SENTIMENT", "VARCHAR"),
+    ("SNOWFLAKE.CORTEX.EXTRACT_ANSWER", "VARCHAR, VARCHAR"),
+    ("SNOWFLAKE.CORTEX.CLASSIFY_TEXT", "VARCHAR, ARRAY"),
+)
+
+
+class CortexAutoModelRoutingCheck(_CortexRule):
+    """COST_041: Detect explicit large-model calls that could use auto-routing instead.
+
+    Briefing: Snowflake Cortex COMPLETE supports automatic model selection via the
+    'snowflake-arctic' or routing parameter. Explicit calls to large models when
+    request volume is low waste credits and bypass cost-optimisation routing.
+    """
+
+    VIEW = "CORTEX_AI_FUNCTIONS_USAGE_HISTORY"
+
+    def __init__(self, telemetry: TelemetryPort | None = None):
+        super().__init__(
+            "COST_041",
+            "Cortex Auto-Model Routing Recommendation",
+            Severity.LOW,
+            rationale=(
+                "Explicit calls to large Cortex models (llama3.1-405b, mistral-large2, "
+                "claude-3-5-sonnet) cost significantly more per token than smaller alternatives. "
+                "Enabling Cortex auto-routing selects the cheapest model that meets quality needs."
+            ),
+            remediation=(
+                "Evaluate whether task quality requirements justify large-model usage. "
+                "Consider switching to 'snowflake-arctic' or enabling model auto-routing "
+                "where response quality is acceptable from smaller models."
+            ),
+            remediation_key="ENABLE_CORTEX_AUTO_ROUTING",
+            telemetry=telemetry,
+        )
+
+    def check_online(
+        self,
+        cursor: SnowflakeCursorProtocol,
+        _resource_name: str | None = None,
+        *,
+        scan_context: ScanContext | None = None,
+        **_kw,
+    ) -> list[Violation]:
+        rows = self._get_rows(cursor, scan_context)
+        if rows is None or len(rows) == 0:
+            return []
+        # Aggregate large-model usage by user
+        large_model_by_user: dict[str, float] = {}
+        try:
+            for row in rows:
+                if len(row) < 3:
+                    continue
+                model = str(row[1]).lower() if row[1] else ""
+                if model not in _LARGE_CORTEX_MODELS:
+                    continue
+                user = str(row[2]) if len(row) > 2 and row[2] else "UNKNOWN"
+                try:
+                    credits = float(row[3] or 0) if len(row) > 3 else 0.0
+                except (TypeError, ValueError):
+                    credits = 0.0
+                large_model_by_user[user] = large_model_by_user.get(user, 0.0) + credits
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
+        return [
+            self.violation(
+                user,
+                f"User '{user}' explicitly called large Cortex models consuming {credits:.1f} credits "
+                "in 30 days. Consider enabling auto-routing to reduce costs.",
+            )
+            for user, credits in sorted(large_model_by_user.items(), key=lambda x: -x[1])
+            if credits > 0
+        ]
+
+
+class CortexPowerUserConcentrationCheck(_CortexRule):
+    """COST_042: Flag accounts where a small number of users dominate Cortex credit usage.
+
+    Briefing: When the top N users account for the majority of Cortex credits, the spend
+    profile is fragile — a single user going rogue can exhaust budgets. This also indicates
+    Cortex access has not been democratised with appropriate per-user quotas.
+    """
+
+    VIEW = "CORTEX_AI_FUNCTIONS_USAGE_HISTORY"
+
+    def __init__(
+        self,
+        conventions: SnowfortConventions | None = None,
+        telemetry: TelemetryPort | None = None,
+    ):
+        super().__init__(
+            "COST_042",
+            "Cortex Power User Credit Concentration",
+            Severity.MEDIUM,
+            rationale=(
+                "When a small number of users consume the majority of Cortex credits, "
+                "quota enforcement is likely absent. A single runaway user can exhaust "
+                "account-level budgets without triggering broad alerting."
+            ),
+            remediation=(
+                "Implement per-user Cortex credit quotas via Snowflake Budgets. "
+                "Review top users' workloads for batch automation that should use "
+                "a dedicated service account with explicit caps."
+            ),
+            remediation_key="SET_PER_USER_CORTEX_QUOTA",
+            telemetry=telemetry,
+        )
+        self._conventions = conventions
+
+    def check_online(
+        self,
+        cursor: SnowflakeCursorProtocol,
+        _resource_name: str | None = None,
+        *,
+        scan_context: ScanContext | None = None,
+        **_kw,
+    ) -> list[Violation]:
+        rows = self._get_rows(cursor, scan_context)
+        if rows is None or len(rows) == 0:
+            return []
+        thresholds = self._thresholds(self._conventions)
+        user_credits: dict[str, float] = {}
+        try:
+            for row in rows:
+                if len(row) < 3:
+                    continue
+                user = str(row[2]) if row[2] else "UNKNOWN"
+                try:
+                    credits = float(row[3] or 0) if len(row) > 3 else 0.0
+                except (TypeError, ValueError):
+                    credits = 0.0
+                user_credits[user] = user_credits.get(user, 0.0) + credits
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
+        if not user_credits:
+            return []
+        total = sum(user_credits.values())
+        if total <= 0:
+            return []
+        top_users = sorted(user_credits.items(), key=lambda x: -x[1])
+        top_n = top_users[: thresholds.power_user_min_users]
+        top_n_credits = sum(c for _, c in top_n)
+        concentration = top_n_credits / total
+        if concentration < thresholds.power_user_concentration_threshold:
+            return []
+        top_names = ", ".join(u for u, _ in top_n)
+        return [
+            self.violation(
+                "Account",
+                f"Top {len(top_n)} user(s) ({top_names}) account for "
+                f"{concentration:.0%} of Cortex credits ({top_n_credits:.1f}/{total:.1f}), "
+                f"exceeding the concentration threshold "
+                f"({thresholds.power_user_concentration_threshold:.0%}). "
+                "Implement per-user quotas to reduce concentration risk.",
+            )
+        ]
+
+
+class CortexPublicAccessCheck(Rule):
+    """COST_043: Flag Cortex LLM functions that are accessible to the PUBLIC role.
+
+    Note: This rule does NOT use _CortexRule / ScanContext because SHOW GRANTS ON FUNCTION
+    returns a different row shape than ACCOUNT_USAGE views and cannot be cached via the
+    standard _cortex_fetcher pattern. Each call issues direct SHOW commands.
+    """
+
+    def __init__(self, telemetry: TelemetryPort | None = None):
+        super().__init__(
+            "COST_043",
+            "Cortex LLM Public Role Access",
+            Severity.HIGH,
+            rationale=(
+                "Granting Cortex LLM functions to the PUBLIC role means every user in "
+                "the account can invoke them without explicit access control. This creates "
+                "uncontrolled credit exposure and violates least-privilege principles."
+            ),
+            remediation=(
+                "Revoke PUBLIC grants on Cortex LLM functions. "
+                "Create a dedicated CORTEX_USERS role and grant it only to appropriate users. "
+                "Audit all roles with Cortex function access quarterly."
+            ),
+            remediation_key="REVOKE_CORTEX_PUBLIC_GRANT",
+            telemetry=telemetry,
+        )
+
+    def check_online(
+        self,
+        cursor: SnowflakeCursorProtocol,
+        _resource_name: str | None = None,
+        *,
+        scan_context: ScanContext | None = None,  # noqa: ARG002
+        **_kw,
+    ) -> list[Violation]:
+        violations: list[Violation] = []
+        try:
+            for fn_name, fn_args in _CORTEX_PUBLIC_FUNCTIONS:
+                try:
+                    cursor.execute(f"SHOW GRANTS ON FUNCTION {fn_name}({fn_args})")  # nosec B608 -- fn_name/fn_args are validated internal constants, not user input
+                    grants = cursor.fetchall()
+                except Exception as exc:
+                    if is_allowlisted_sf_error(exc):
+                        continue  # function not available in this account edition
+                    raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
+                for grant_row in grants:
+                    # Row shape: [created_on, privilege, granted_on, name, granted_to, grantee_name, ...]
+                    if len(grant_row) < 6:
+                        continue
+                    grantee = str(grant_row[5]).upper() if grant_row[5] else ""
+                    privilege = str(grant_row[1]).upper() if grant_row[1] else ""
+                    if grantee == "PUBLIC" and privilege == "USAGE":
+                        short_name = fn_name.split(".")[-1]
+                        violations.append(
+                            self.violation(
+                                short_name,
+                                f"Cortex function {short_name}({fn_args}) has USAGE granted to PUBLIC. "
+                                "Every account user can invoke this function without explicit access control.",
+                            )
+                        )
+        except RuleExecutionError:
+            raise
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
+        return violations
+
+
+class CortexSessionGrowthTrendCheck(_CortexRule):
+    """COST_044: Detect sustained month-over-month Cortex credit growth before it becomes a crisis.
+
+    Briefing: Gradual ramp-ups are easy to miss in daily dashboards. This rule computes
+    monthly Cortex credit totals and flags when growth exceeds the configured threshold
+    for two or more consecutive months — the canonical early-warning signal.
+    """
+
+    VIEW = "METERING_DAILY_HISTORY"
+    TIME_COL = "USAGE_DATE"
+
+    def __init__(
+        self,
+        conventions: SnowfortConventions | None = None,
+        telemetry: TelemetryPort | None = None,
+    ):
+        super().__init__(
+            "COST_044",
+            "Cortex Session Growth Trend",
+            Severity.LOW,
+            rationale=(
+                "Sustained month-over-month Cortex credit growth that exceeds the configured "
+                "threshold for multiple consecutive months indicates organic expansion without "
+                "corresponding budget alignment."
+            ),
+            remediation=(
+                "Review monthly Cortex credit trends. Engage budget owners to formalise "
+                "expected growth and set corresponding Snowflake Budget alerts. "
+                "If growth is unexpected, investigate new workloads via QUERY_HISTORY."
+            ),
+            remediation_key="REVIEW_CORTEX_GROWTH_TREND",
+            telemetry=telemetry,
+        )
+        self._conventions = conventions
+
+    def _build_month_credits(self, rows: tuple) -> dict[str, float]:
+        """Aggregate row data into YYYY-MM → credits map, filtering to Cortex services."""
+        month_credits: dict[str, float] = {}
+        for row in rows:
+            if len(row) < 2:
+                continue
+            service_type = str(row[1]).upper() if row[1] else ""
+            if "CORTEX" not in service_type and "AI" not in service_type:
+                continue
+            usage_date = str(row[0])[:7] if row[0] else ""
+            if not usage_date:
+                continue
+            try:
+                credits = float(row[2] or 0) if len(row) > 2 else 0.0
+            except (TypeError, ValueError):
+                credits = 0.0
+            month_credits[usage_date] = month_credits.get(usage_date, 0.0) + credits
+        return month_credits
+
+    def _detect_consecutive_growth(
+        self,
+        month_credits: dict[str, float],
+        rate_threshold: float,
+        min_consecutive: int,
+    ) -> tuple[int, list[str]]:
+        """Return (max_consecutive, growth_month_labels) if threshold met, else (0, [])."""
+        months = sorted(month_credits)
+        consecutive = 0
+        growth_months: list[str] = []
+        for i in range(1, len(months)):
+            prev = month_credits[months[i - 1]]
+            curr = month_credits[months[i]]
+            if prev > 0 and (curr - prev) / prev >= rate_threshold:
+                consecutive += 1
+                if consecutive == 1:
+                    growth_months = [months[i - 1], months[i]]
+                else:
+                    growth_months.append(months[i])
+                if consecutive >= min_consecutive:
+                    return consecutive, growth_months
+            else:
+                consecutive = 0
+                growth_months = []
+        return 0, []
+
+    def check_online(
+        self,
+        cursor: SnowflakeCursorProtocol,
+        _resource_name: str | None = None,
+        *,
+        scan_context: ScanContext | None = None,
+        **_kw,
+    ) -> list[Violation]:
+        rows = self._get_rows(cursor, scan_context)
+        if rows is None or len(rows) == 0:
+            return []
+        thresholds = self._thresholds(self._conventions)
+        try:
+            month_credits = self._build_month_credits(rows)
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
+        if len(month_credits) < 2:
+            return []
+        consecutive, growth_months = self._detect_consecutive_growth(
+            month_credits,
+            thresholds.growth_rate_threshold,
+            thresholds.growth_consecutive_months,
+        )
+        if not consecutive:
+            return []
+        span = f"{growth_months[0]} → {growth_months[-1]}"
+        return [
+            self.violation(
+                "Account",
+                f"Cortex credits grew by ≥{thresholds.growth_rate_threshold:.0%} "
+                f"month-over-month for {consecutive} consecutive months ({span}). "
+                "Review workload growth against current budget allocations.",
+            )
+        ]
+
+
+# ===========================================================================
 # Exported list for rule_registry.py
 # ===========================================================================
 
@@ -1391,7 +1761,7 @@ def get_cortex_rules(
     conventions: SnowfortConventions | None = None,
     telemetry: TelemetryPort | None = None,
 ) -> list[Rule]:
-    """Return all 18 Cortex cost governance rules with injected dependencies."""
+    """Return all 22 Cortex cost governance rules with injected dependencies."""
     return [
         # D1 — Cortex AI Functions
         CortexAIFunctionCreditBudgetCheck(conventions=conventions, telemetry=telemetry),
@@ -1418,4 +1788,9 @@ def get_cortex_rules(
         CortexAnalystEnabledWithoutBudgetCheck(telemetry=telemetry),
         # Bonus — Document Processing
         CortexDocumentProcessingSpendCheck(conventions=conventions, telemetry=telemetry),
+        # D8 — Directive F cost rules
+        CortexAutoModelRoutingCheck(telemetry=telemetry),
+        CortexPowerUserConcentrationCheck(conventions=conventions, telemetry=telemetry),
+        CortexPublicAccessCheck(telemetry=telemetry),
+        CortexSessionGrowthTrendCheck(conventions=conventions, telemetry=telemetry),
     ]
