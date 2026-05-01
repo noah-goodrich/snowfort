@@ -4,6 +4,31 @@ All notable changes to snowfort-audit are documented here.
 
 ---
 
+## [1.0.1] — 2026-05-01
+
+### Bug Fixes
+
+- **Duplicate rule IDs resolved** — four collisions corrected:
+  - `COST_016` (DataTransferMonitoringCheck in `cost.py`) → `COST_045`: collided with the
+    cortex_cost.py D1 block intentionally assigned COST_016–020.
+  - `COST_012` (IsolationPivotCheck in `strategy.py`) → `COST_046`: collided with
+    HighChurnPermanentTableCheck in `cost.py`.
+  - `OP_001` (ResourceMonitorCheck) → `OPS_002`: normalized to the canonical `OPS_` prefix
+    used by all other rules in `op_excellence.py`.
+  - `OP_002` (ObjectCommentCheck) → `OPS_004`: same prefix normalization (OPS_003 = alerts).
+  - `"OP"` prefix retained in `PILLAR_MAP` for backward compatibility with cached scan results.
+  - Snapshot fixture, docs (RULES_CATALOG, SMOKE_TEST, RULE_APPLICABILITY_MATRIX,
+    PERFORMANCE_STRATEGIES, WAREHOUSE_SIZING), and `report.yaml` all updated.
+
+### Documentation
+
+- Added `docs/plans/directives/interactive-remediation-skill.md`: full directive for a
+  Cortex-native interactive audit session covering conversational triage, challenge mode,
+  remediation plan builder, optional execution loop, and session YAML output.
+- `docs/DEFERRED_WORK.md` updated to reflect directive status and PyPI in-progress state.
+
+---
+
 ## [1.0.0] — 2026-04-10
 
 ### Summary
