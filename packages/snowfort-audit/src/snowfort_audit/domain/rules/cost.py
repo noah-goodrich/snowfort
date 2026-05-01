@@ -794,11 +794,11 @@ class UnusedMaterializedViewCheck(Rule):
 
 
 class DataTransferMonitoringCheck(Rule):
-    """COST_016: Flag high cross-region data transfer (WAF: monitor DATA_TRANSFER_HISTORY, minimize egress)."""
+    """COST_045: Flag high cross-region data transfer (WAF: monitor DATA_TRANSFER_HISTORY, minimize egress)."""
 
     def __init__(self, telemetry: TelemetryPort | None = None):
         super().__init__(
-            "COST_016",
+            "COST_045",
             "Data Transfer Monitoring",
             Severity.MEDIUM,
             rationale="High data egress and cross-region transfer increase cost; WAF recommends monitoring DATA_TRANSFER_HISTORY and minimizing egress.",

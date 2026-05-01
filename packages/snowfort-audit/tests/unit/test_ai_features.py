@@ -15,7 +15,7 @@ class TestAIFeatures:
         synthesizer = CortexSynthesizer(mock_cursor)
 
         violations = [
-            Violation("COST_012", "q_123", "Isolation Pivot needed.", Severity.MEDIUM),
+            Violation("COST_046", "q_123", "Isolation Pivot needed.", Severity.MEDIUM),
             Violation("PERF_006", "WH_LARGE", "Oversized. Save $100.", Severity.MEDIUM),
         ]
 

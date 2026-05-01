@@ -18,14 +18,14 @@ if TYPE_CHECKING:
 
 
 class IsolationPivotCheck(Rule):
-    """COST_012: Strategic Advisor - Recommend Isolation over Upsizing."""
+    """COST_046: Strategic Advisor - Recommend Isolation over Upsizing."""
 
     # Elephant Factor: Queries 100x larger than average are considered 'Elephants' and should be isolated.
     ELEPHANT_FACTOR = 100
 
     def __init__(self, telemetry: TelemetryPort | None = None):
         super().__init__(
-            "COST_012",
+            "COST_046",
             "Isolation Pivot (Elephant Detection)",
             Severity.MEDIUM,
             rationale=(

@@ -73,6 +73,8 @@ COST_041: []
 COST_042: []
 COST_043: []
 COST_044: []
+COST_045: []
+COST_046: []
 GOV_001: []
 GOV_002: []
 GOV_003:
@@ -96,9 +98,20 @@ OPS_001:
 - message: Object has ZERO tags. Governance failure.
   resource: Warehouse '2024-01-01'
   severity: MEDIUM
+OPS_002:
+- message: No Resource Monitors defined in account.
+  resource: Account
+  severity: MEDIUM
+- message: Warehouse 'BAD_COST_WH' has no Resource Monitor attached.
+  resource: BAD_COST_WH
+  severity: MEDIUM
 OPS_003:
 - message: No Snowflake Alerts defined; configure alerts for key metrics and failures.
   resource: Account
+  severity: LOW
+OPS_004:
+- message: Database 'MY_APP_DB' is missing a comment/description.
+  resource: MY_APP_DB
   severity: LOW
 OPS_005: []
 OPS_006: []
@@ -129,17 +142,6 @@ OPS_011:
 OPS_012: []
 OPS_013: []
 OPS_014: []
-OP_001:
-- message: No Resource Monitors defined in account.
-  resource: Account
-  severity: MEDIUM
-- message: Warehouse 'BAD_COST_WH' has no Resource Monitor attached.
-  resource: BAD_COST_WH
-  severity: MEDIUM
-OP_002:
-- message: Database 'MY_APP_DB' is missing a comment/description.
-  resource: MY_APP_DB
-  severity: LOW
 PERF_001: []
 PERF_002: []
 PERF_003: []

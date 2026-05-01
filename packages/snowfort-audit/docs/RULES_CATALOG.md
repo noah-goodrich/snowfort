@@ -18,11 +18,10 @@ This catalog lists all 116 built-in rules. Generated from `get_all_rules()` on 2
 | COST_010 | QAS Eligibility | Recommends enabling Query Acceleration for eligible warehouses. | MEDIUM | Online |
 | COST_011 | Workload Heterogeneity | Detects mixed workloads via variance analysis. | MEDIUM | Online |
 | COST_012 | High-Churn Permanent Tables | Permanent tables with high DML churn (consider transient). | MEDIUM | Online |
-| COST_012 | Isolation Pivot | Recommends isolating Elephant queries. | MEDIUM | Online |
 | COST_013 | Unused Materialized View | MVs refreshed but not queried in 30 days. | MEDIUM | Online |
 | COST_014 | Automatic Clustering Cost/Benefit | High clustering credits; review vs pruning benefit. | MEDIUM | Online |
 | COST_015 | Search Optimization Cost/Benefit | High SOS credits; review index usage. | MEDIUM | Online |
-| COST_016 | Data Transfer Monitoring | High cross-region/egress transfer in 7 days. | MEDIUM | Online |
+| COST_016 | Cortex AI Function Daily Budget | Days where Cortex AI function credits exceed daily limits. | HIGH | Online |
 | COST_017 | Cortex AI Model Allowlist | Cortex AI function calls using non-allowlisted models. | MEDIUM | Online |
 | COST_018 | Cortex AI Query Tag Coverage | Cortex AI rows with no QUERY_TAG (>20% untagged). | MEDIUM | Online |
 | COST_019 | Cortex AI Per-User Spend | Top users by credits; outlier >3x median. | MEDIUM | Online |
@@ -40,10 +39,20 @@ This catalog lists all 116 built-in rules. Generated from `get_all_rules()` on 2
 | COST_031 | Cortex Analyst Per-User Quota | Users exceeding configured daily analyst request quota. | MEDIUM | Online |
 | COST_032 | Cortex Analyst Without Budget | ENABLE_CORTEX_ANALYST=TRUE with no account budget set. | HIGH | Online |
 | COST_033 | Cortex Document Processing Spend | AI_PARSE_DOCUMENT + AI_EXTRACT aggregate spend exceeds threshold. | MEDIUM | Online |
+| COST_034 | Warehouse Consolidation Opportunity | Warehouse pairs with combined P50 utilization below threshold. | MEDIUM | Online |
+| COST_035 | Warehouse Downsize Savings | Dollar-denominated savings estimate from undersized warehouses. | MEDIUM | Online |
+| COST_036 | Zombie Warehouse (Active) | Warehouses with zero queries still running (not suspended). | HIGH | Online |
+| COST_037 | Large Stale Table Retention | Large tables with long time-travel and no recent queries. | MEDIUM | Online |
+| COST_038 | Excessive or Stale Clones | Schemas with excessive or stale clones. | MEDIUM | Online |
+| COST_039 | Cold Storage Candidates | Large tables without clustering that are rarely queried. | MEDIUM | Online |
+| COST_040 | Stale Table Storage Rank | Ranks stale tables by storage impact. | LOW | Online |
+| COST_041 | Cortex Large Model Overuse | Explicit large-model calls that could use auto-routing. | HIGH | Online |
+| COST_042 | Cortex Credit Concentration | Small number of users dominating Cortex credit usage. | HIGH | Online |
+| COST_043 | Cortex LLM Public Role Access | Cortex LLM functions accessible to the PUBLIC role. | CRITICAL | Online |
+| COST_044 | Cortex Credit Growth Trend | Sustained month-over-month Cortex credit growth. | HIGH | Online |
+| COST_045 | Data Transfer Monitoring | High cross-region/egress transfer in 7 days. | MEDIUM | Online |
+| COST_046 | Isolation Pivot | Recommends isolating Elephant queries onto a dedicated warehouse. | MEDIUM | Online |
 
-> **Note:** COST_012 has two implementations (High-Churn Permanent Tables and Isolation Pivot)
-> sharing the same rule ID. Both run during online scans.
->
 > **Note:** Cortex cost rules (COST_016–033) are unit-tested only — seeding real Cortex usage
 > incurs real credits. See `docs/SMOKE_TEST.md` for the full coverage tier breakdown.
 
@@ -118,10 +127,10 @@ This catalog lists all 116 built-in rules. Generated from `get_all_rules()` on 2
 
 | Rule ID | Name | Description | Severity | Mode |
 |---------|------|-------------|----------|------|
-| OP_001 | Resource Monitor | Missing resource monitors. | MEDIUM | Online |
-| OP_002 | Object Comment | Databases/schemas missing comments. | LOW | Online |
 | OPS_001 | Mandatory Tagging | Missing COST_CENTER, OWNER, ENVIRONMENT tags. | HIGH | Online |
+| OPS_002 | Resource Monitor | Missing resource monitors. | MEDIUM | Online |
 | OPS_003 | Alert Configuration | No alerts or none resumed. | LOW | Online |
+| OPS_004 | Object Comment | Databases/schemas missing comments. | LOW | Online |
 | OPS_005 | SLO Throttler | Warehouses significantly faster than SLO (oversized). | LOW | Online |
 | OPS_006 | Resize Churn | Frequent manual resizing events. | LOW | Online |
 | OPS_007 | Notification Integration | No notification integration for alerts. | LOW | Online |

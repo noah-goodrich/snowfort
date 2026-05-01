@@ -24,11 +24,11 @@ if TYPE_CHECKING:
 
 
 class ResourceMonitorCheck(Rule):
-    """OP_001: Check for missing Resource Monitors at account/warehouse level."""
+    """OPS_002: Check for missing Resource Monitors at account/warehouse level."""
 
     def __init__(self, telemetry: TelemetryPort | None = None):
         super().__init__(
-            "OP_001",
+            "OPS_002",
             "Resource Monitoring",
             Severity.MEDIUM,
             rationale="Unmonitored compute resources can lead to surprise billing spikes; Resource Monitors provide a critical hard-limit safety net to automatically suspend a warehouse.",
@@ -110,11 +110,11 @@ class ResourceMonitorCheck(Rule):
 
 
 class ObjectCommentCheck(Rule):
-    """OP_002: Ensure Databases/Schemas have comments for documentation/ownership."""
+    """OPS_004: Ensure Databases/Schemas have comments for documentation/ownership."""
 
     def __init__(self, telemetry: TelemetryPort | None = None):
         super().__init__(
-            "OP_002",
+            "OPS_004",
             "Object Documentation",
             Severity.LOW,
             rationale="Lack of documentation (comments) makes it hard to understand data ownership and purpose, increasing coordination costs and the risk of accidental data deletion.",

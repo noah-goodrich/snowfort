@@ -25,11 +25,11 @@ Rules in the "unit-only" tier either (a) require real service usage that costs c
 | COST_010 | QAS Eligibility | Unit-only | Requires query history |
 | COST_011 | Workload Heterogeneity | Unit-only | Requires query history |
 | COST_012 | High-Churn Permanent Tables | Unit-only | Requires DML history |
-| COST_012 | Isolation Pivot | Unit-only | Requires query history |
 | COST_013 | Unused Materialized View | Unit-only | Requires 30-day usage history |
 | COST_014 | Automatic Clustering Cost/Benefit | Unit-only | Requires credit history |
 | COST_015 | Search Optimization Cost/Benefit | Unit-only | Requires credit history |
-| COST_016 | Data Transfer Monitoring | Unit-only | Requires transfer history |
+| COST_045 | Data Transfer Monitoring | Unit-only | Requires transfer history |
+| COST_046 | Isolation Pivot | Unit-only | Requires query history |
 | COST_017 | Cortex AI Model Allowlist | **Unit-only** | Seeding Cortex usage costs real credits |
 | COST_018 | Cortex AI Query Tag Coverage | **Unit-only** | Seeding Cortex usage costs real credits |
 | COST_019 | Cortex AI Per-User Spend | **Unit-only** | Seeding Cortex usage costs real credits |
@@ -127,8 +127,8 @@ Rules in the "unit-only" tier either (a) require real service usage that costs c
 
 | Rule ID | Name | Coverage Tier | Notes |
 |---------|------|---------------|-------|
-| OP_001 | Resource Monitor | Unit-only | Account resource monitor inspection |
-| OP_002 | Object Comment | Unit-only | Object inspection |
+| OPS_002 | Resource Monitor | Unit-only | Account resource monitor inspection |
+| OPS_004 | Object Comment | Unit-only | Object inspection |
 | OPS_001 | Mandatory Tagging | Smoke | Seeded warehouses have no tags |
 | OPS_003 | Alert Configuration | Unit-only | Alert state inspection |
 | OPS_005 | SLO Throttler | Unit-only | Requires credit history |

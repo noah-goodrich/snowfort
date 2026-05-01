@@ -59,12 +59,11 @@ Each row is a rule; each column is a Snowflake object level. **✓** = the rule 
 | COST_013 | Unused Materialized View Detection | — | — | — | — | — | ✓ | — | — | No |
 | COST_014 | Automatic Clustering Cost/Benefit | — | — | — | — | ✓ | — | — | — | No |
 | COST_015 | Search Optimization Cost/Benefit | — | — | ✓ | ✓ | — | — | — | — | No |
-| COST_016 | Data Transfer Monitoring | — | ✓ | — | — | — | — | — | — | No |
-| **Strategy** (note: strategy module uses ID COST_012 as well) |
-| COST_012 | Isolation Pivot (Elephant Detection) | — | ✓ | — | — | — | — | — | — | No |
+| COST_045 | Data Transfer Monitoring | — | ✓ | — | — | — | — | — | — | No |
+| COST_046 | Isolation Pivot (Elephant Detection) | — | ✓ | — | — | — | — | — | — | No |
 | **Operations / op_excellence** |
-| OP_001 | Resource Monitoring | — | ✓ | — | — | — | — | — | — | No |
-| OP_002 | Object Documentation (DB comment) | — | — | ✓ | — | — | — | — | — | No |
+| OPS_002 | Resource Monitoring | — | ✓ | — | — | — | — | — | — | No |
+| OPS_004 | Object Documentation (DB comment) | — | — | ✓ | — | — | — | — | — | No |
 | OPS_001 | Mandatory Tagging | — | ✓ | ✓ | — | — | — | — | — | No |
 | OPS_003 | Alert Configuration | — | ✓ | — | — | — | — | — | — | No |
 | OPS_005 | SLO Throttler (Oversized) | — | ✓ | — | — | — | — | — | — | No |

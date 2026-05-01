@@ -52,7 +52,7 @@ CREATE RESOURCE MONITOR prod_wh_monitor
 ALTER WAREHOUSE my_prod_wh SET RESOURCE_MONITOR = prod_wh_monitor;
 ```
 
-Snowfort Audit flags warehouses without a Resource Monitor (OP_001).
+Snowfort Audit flags warehouses without a Resource Monitor (OPS_002).
 
 ## Key-Pair Auth for Parallel Scans
 
