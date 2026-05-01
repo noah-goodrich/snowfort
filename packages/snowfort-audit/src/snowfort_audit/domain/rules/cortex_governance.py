@@ -18,6 +18,7 @@ All rules:
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 from snowfort_audit.domain.conventions import CortexThresholds, SnowfortConventions
@@ -30,8 +31,10 @@ from snowfort_audit.domain.rule_definitions import (
     is_allowlisted_sf_error,
 )
 from snowfort_audit.domain.rules.cortex_cost import (
+    _CORTEX_METERING_SERVICE_TYPES,
     _CortexRule,
 )
+from snowfort_audit.domain.sql_safety import quote_identifier
 
 if TYPE_CHECKING:
     from snowfort_audit._vendor.protocols import SnowflakeCursorProtocol
@@ -53,7 +56,6 @@ _CORTEX_LLM_FUNCTION_KEYWORDS: frozenset[str] = frozenset(
         "TRY_COMPLETE",
     }
 )
-
 
 # ===========================================================================
 # CORTEX_001 — Cortex Search Service Governance
@@ -110,7 +112,7 @@ class CortexSearchServiceGovernanceCheck(Rule):
     ) -> list[Violation]:
         """Return violations if PUBLIC has USAGE on this search service."""
         try:
-            cursor.execute(f"SHOW GRANTS ON CORTEX SEARCH SERVICE {service_name}")  # nosec B608 -- service_name comes from SHOW output, a validated system catalog value
+            cursor.execute(f"SHOW GRANTS ON CORTEX SEARCH SERVICE {quote_identifier(service_name)}")  # nosec B608 -- quote_identifier escapes embedded quotes per Snowflake identifier grammar
             grants = cursor.fetchall()
         except Exception as exc:
             if is_allowlisted_sf_error(exc):
@@ -136,21 +138,43 @@ class CortexSearchServiceGovernanceCheck(Rule):
         row: tuple,
         service_name: str,
         threshold_gb: int,
+        size_col_idx: int | None = None,
     ) -> Violation | None:
-        """Return a violation if any numeric cell in the row exceeds threshold_gb."""
-        for cell in row[2:]:
-            try:
-                size_gb = float(cell or 0)
-                if size_gb > threshold_gb:
-                    return self.violation(
-                        service_name,
-                        f"Cortex Search service '{service_name}' corpus is {size_gb:.1f} GB, "
-                        f"exceeding the governance threshold ({threshold_gb} GB). "
-                        "Review data minimisation and index scope.",
-                    )
-                break
-            except (TypeError, ValueError):
-                continue
+        """Return a violation if the identified size column exceeds threshold_gb.
+
+        ``size_col_idx`` must be supplied by the caller after inspecting
+        ``cursor.description`` for a column whose name contains "bytes" or "size".
+        When ``size_col_idx`` is None the check is skipped to avoid false
+        positives from doc-count or timestamp columns.
+        """
+        if size_col_idx is None or size_col_idx >= len(row):
+            return None
+        try:
+            size_gb = float(row[size_col_idx] or 0)
+        except (TypeError, ValueError):
+            return None
+        if size_gb > threshold_gb:
+            return self.violation(
+                service_name,
+                f"Cortex Search service '{service_name}' corpus is {size_gb:.1f} GB, "
+                f"exceeding the governance threshold ({threshold_gb} GB). "
+                "Review data minimisation and index scope.",
+            )
+        return None
+
+    @staticmethod
+    def _find_size_col_idx(cursor: SnowflakeCursorProtocol) -> int | None:
+        """Return the index of the corpus-size column from cursor.description, or None.
+
+        Identifies the size column by name (must contain 'bytes' or 'size_gb') to avoid
+        false positives from doc-count or timestamp columns.
+        """
+        if not cursor.description:
+            return None
+        for idx, col_desc in enumerate(cursor.description):
+            col_lower = col_desc[0].lower()
+            if "bytes" in col_lower or "size_gb" in col_lower:
+                return idx
         return None
 
     def check_online(
@@ -164,6 +188,7 @@ class CortexSearchServiceGovernanceCheck(Rule):
         violations: list[Violation] = []
         try:
             cursor.execute("SHOW CORTEX SEARCH SERVICES")
+            size_col_idx = self._find_size_col_idx(cursor)
             services = cursor.fetchall()
         except Exception as exc:
             if is_allowlisted_sf_error(exc):
@@ -178,7 +203,9 @@ class CortexSearchServiceGovernanceCheck(Rule):
                     continue
                 service_name = str(row[1]) if row[1] else "UNKNOWN"
                 violations.extend(self._check_public_grants(cursor, service_name))
-                size_viol = self._check_corpus_size(row, service_name, thresholds.search_corpus_size_threshold_gb)
+                size_viol = self._check_corpus_size(
+                    row, service_name, thresholds.search_corpus_size_threshold_gb, size_col_idx
+                )
                 if size_viol:
                     violations.append(size_viol)
         except RuleExecutionError:
@@ -245,8 +272,9 @@ class CortexAnalystSemanticModelAuditCheck(_CortexRule):
                 if len(row) < 7:
                     continue
                 query_text = str(row[1]).upper() if row[1] else ""
-                # Analyst queries are routed via a distinct application tag pattern
-                if "CORTEX_ANALYST" in query_text or "ANALYST" in query_text and "COMPLETE" in query_text:
+                # Analyst queries are routed via a distinct application tag pattern.
+                # Parentheses required: `and` binds tighter than `or`.
+                if "CORTEX_ANALYST" in query_text or ("ANALYST" in query_text and "COMPLETE" in query_text):
                     user = str(row[6]) if row[6] else "UNKNOWN"
                     analyst_users.add(user)
         except Exception as exc:
@@ -473,22 +501,32 @@ class CortexFineTuningCostTrackingCheck(_CortexRule):
         """Scan QUERY_HISTORY rows for fine-tune and inference calls.
 
         Returns (fine_tune_dates, inference_dates) mapping model_key → latest date.
+        Each fine-tuned model is tracked under its actual model identifier extracted
+        from the FINETUNE() call, falling back to 'fine_tuned_model' when the
+        pattern cannot be parsed.
         """
         fine_tune_dates: dict[str, str] = {}
         inference_dates: dict[str, str] = {}
+        # Pattern: FINETUNE(<base_model>, '<output_model_name>', ...)
+        _finetune_name_re = re.compile(r"FINETUNE\s*\([^,]+,\s*'([^']+)'", re.IGNORECASE)
         for row in rows:
             if len(row) < 7:
                 continue
-            query_text = str(row[1]).upper() if row[1] else ""
+            query_text = str(row[1]) if row[1] else ""
+            query_text_upper = query_text.upper()
             query_date = str(row[0])[:10] if row[0] else ""
             if not query_date:
                 continue
-            if "FINETUNE" in query_text or "FINE_TUNE" in query_text:
-                model_key = "fine_tuned_model"
+            if "FINETUNE" in query_text_upper or "FINE_TUNE" in query_text_upper:
+                m = _finetune_name_re.search(query_text)
+                model_key = m.group(1).lower() if m else "fine_tuned_model"
                 if model_key not in fine_tune_dates or fine_tune_dates[model_key] < query_date:
                     fine_tune_dates[model_key] = query_date
-            elif "COMPLETE" in query_text and ("FT_" in query_text or "CUSTOM" in query_text):
-                model_key = "fine_tuned_model"
+            elif "COMPLETE" in query_text_upper and ("FT_" in query_text_upper or "CUSTOM" in query_text_upper):
+                # Inference call against a fine-tuned model; extract the model name from
+                # the first string argument: COMPLETE('<model_name>', ...)
+                m = re.search(r"COMPLETE\s*\(\s*'([^']+)'", query_text, re.IGNORECASE)
+                model_key = m.group(1).lower() if m else "fine_tuned_model"
                 if model_key not in inference_dates or inference_dates[model_key] < query_date:
                     inference_dates[model_key] = query_date
         return fine_tune_dates, inference_dates
@@ -656,7 +694,7 @@ class CortexServerlessAIBudgetGapCheck(_CortexRule):
             if len(row) < 2:
                 continue
             service_type = str(row[1]).upper() if row[1] else ""
-            if "CORTEX" not in service_type and "AI" not in service_type:
+            if service_type not in _CORTEX_METERING_SERVICE_TYPES:
                 continue
             try:
                 total += float(row[2] or 0) if len(row) > 2 else 0.0
@@ -670,7 +708,6 @@ class CortexServerlessAIBudgetGapCheck(_CortexRule):
             cursor.execute(
                 "SELECT BUDGET_NAME FROM SNOWFLAKE.LOCAL.BUDGETS"  # nosec B608 -- fully-qualified system view, no user input
                 " WHERE UPPER(BUDGET_NAME) LIKE '%CORTEX%'"
-                " OR UPPER(BUDGET_NAME) LIKE '%AI%'"
                 " LIMIT 1"
             )
             return bool(cursor.fetchall())

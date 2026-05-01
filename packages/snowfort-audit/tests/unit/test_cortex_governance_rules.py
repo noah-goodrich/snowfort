@@ -128,7 +128,13 @@ class TestCortexSearchServiceGovernanceCheck:
         conv = _full_conventions(search_threshold_gb=5)
         rule = CortexSearchServiceGovernanceCheck(conventions=conv)
         cursor = MagicMock()
-        # Service with 10 GB corpus; no PUBLIC grant
+        # Service with 10 GB corpus; no PUBLIC grant.
+        # cursor.description must include a 'bytes' column so _find_size_col_idx locates it.
+        cursor.description = [
+            ("created_on", None, None, None, None, None, None),
+            ("name", None, None, None, None, None, None),
+            ("data_bytes", None, None, None, None, None, None),
+        ]
         cursor.fetchall.side_effect = [
             [("2026-01-01", "BIG_SVC", 10.0)],
             [],  # SHOW GRANTS → empty (no PUBLIC)
@@ -173,9 +179,7 @@ class TestCortexAnalystSemanticModelAuditCheck:
     def test_analyst_query_detected_flags_violation(self):
         rule = CortexAnalystSemanticModelAuditCheck()
         # Query text containing CORTEX_ANALYST keyword
-        rows = (
-            ("Q1", "/* CORTEX_ANALYST */ SELECT revenue FROM sales", None, None, None, None, "USER1"),
-        )
+        rows = (("Q1", "/* CORTEX_ANALYST */ SELECT revenue FROM sales", None, None, None, None, "USER1"),)
         ctx = _make_ctx_with_cached(rule.VIEW, rows)
         result = rule.check_online(_cursor_empty(), scan_context=ctx)
         assert len(result) == 1
@@ -184,10 +188,7 @@ class TestCortexAnalystSemanticModelAuditCheck:
     def test_multiple_analyst_users_single_violation(self):
         """Even with N users, we emit a single account-level violation."""
         rule = CortexAnalystSemanticModelAuditCheck()
-        rows = tuple(
-            (f"Q{i}", "/* CORTEX_ANALYST */ SELECT x", None, None, None, None, f"USER{i}")
-            for i in range(5)
-        )
+        rows = tuple((f"Q{i}", "/* CORTEX_ANALYST */ SELECT x", None, None, None, None, f"USER{i}") for i in range(5))
         ctx = _make_ctx_with_cached(rule.VIEW, rows)
         result = rule.check_online(_cursor_empty(), scan_context=ctx)
         assert len(result) == 1
@@ -211,9 +212,7 @@ class TestCortexAgentGovernanceCheck:
 
     def test_no_agent_queries_no_violation(self):
         rule = CortexAgentGovernanceCheck()
-        rows = (
-            ("2026-04-01T00:00:00", "SELECT * FROM t", None, None, None, None, "USER1"),
-        )
+        rows = (("2026-04-01T00:00:00", "SELECT * FROM t", None, None, None, None, "USER1"),)
         ctx = _make_ctx_with_cached(rule.VIEW, rows)
         assert rule.check_online(_cursor_empty(), scan_context=ctx) == []
 
@@ -303,9 +302,7 @@ class TestCortexFineTuningCostTrackingCheck:
 
     def test_no_fine_tuning_no_violation(self):
         rule = CortexFineTuningCostTrackingCheck()
-        rows = (
-            ("Q1", "SELECT * FROM t", None, None, None, None, "USER1"),
-        )
+        rows = (("Q1", "SELECT * FROM t", None, None, None, None, "USER1"),)
         ctx = _make_ctx_with_cached(rule.VIEW, rows)
         assert rule.check_online(_cursor_empty(), scan_context=ctx) == []
 
@@ -371,9 +368,7 @@ class TestCortexLLMFunctionSprawlCheck:
 
     def test_no_llm_queries_no_violation(self):
         rule = CortexLLMFunctionSprawlCheck()
-        rows = (
-            ("Q1", "SELECT * FROM table1", None, None, None, None, "U", None, "ROLE"),
-        )
+        rows = (("Q1", "SELECT * FROM table1", None, None, None, None, "U", None, "ROLE"),)
         ctx = _make_ctx_with_cached(rule.VIEW, rows)
         assert rule.check_online(_cursor_empty(), scan_context=ctx) == []
 

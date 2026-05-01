@@ -7,6 +7,7 @@ on:
       - "packages/snowfort-audit/src/snowfort_audit/infrastructure/cortex*"
       - "packages/snowfort-audit/src/snowfort_audit/use_cases/online_scan.py"
       - "packages/snowfort-audit/src/snowfort_audit/domain/sql_safety.py"
+  workflow_dispatch: {}
 
 jobs:
   adversarial-review:
@@ -18,9 +19,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 0
 
-      - uses: anthropics/claude-code-action@beta
+      # PR mode: review the diff for security and quality issues
+      - name: Adversarial review (PR diff)
+        if: github.event_name == 'pull_request'
+        uses: anthropics/claude-code-action@beta
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -64,3 +68,61 @@ jobs:
             Format your response as a GitHub pull request review. Use inline comments on specific
             lines where possible. Summarise findings by severity (P0 → P3). If no issues are
             found at a given severity level, say so explicitly. Do not generate praise.
+
+      # Manual full-codebase scan: reads all rule files and reviews them entirely
+      - name: Adversarial review (full codebase)
+        if: github.event_name == 'workflow_dispatch'
+        uses: anthropics/claude-code-action@beta
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          model: claude-opus-4-7
+          direct_prompt: |
+            You are performing a full adversarial security and quality review of the entire
+            snowfort-audit rule codebase. Read ALL files in:
+              - packages/snowfort-audit/src/snowfort_audit/domain/rules/
+              - packages/snowfort-audit/src/snowfort_audit/infrastructure/  (cortex* files only)
+              - packages/snowfort-audit/src/snowfort_audit/use_cases/online_scan.py
+              - packages/snowfort-audit/src/snowfort_audit/domain/sql_safety.py
+
+            Also read the schema fixture at:
+              - packages/snowfort-audit/tests/unit/fixtures/account_usage_schema.py
+
+            Your job is to find problems across the entire codebase, not to compliment working code.
+
+            Review for the following in order of priority:
+
+            **P0 — Data exfiltration / leakage / injection**
+            - Does any rule query pass user data (violation messages, resource names, column
+              values, query text) to an external LLM or third-party service without redaction?
+            - Does any fetcher issue a `SELECT *` against a view that may contain payload
+              columns (REQUEST_BODY, RESPONSE_BODY, PROMPT, COMPLETION, etc.)?
+            - Does any cursor.execute() interpolate Snowflake-controlled identifiers or user
+              input via f-strings without `quote_identifier()` / `quote_fqdn()` /
+              `escape_string_literal()` from `sql_safety.py`?
+            - Are `nosec B608` annotations applied to lines where interpolation is NOT safe
+              per the `sql_safety.py` docstring contract?
+
+            **P1 — Silent failure / error swallowing**
+            - Does any `except Exception` block end with `pass`, `return []`, or `return None`
+              without first calling `is_allowlisted_sf_error(exc)` or raising `RuleExecutionError`?
+
+            **P2 — Query scope / data minimisation**
+            - Does any ACCOUNT_USAGE query lack a date filter (`DATEADD`/`CURRENT_TIMESTAMP`)?
+            - Does any ACCOUNT_USAGE query lack a `LIMIT` clause?
+            - Does any Cortex usage view query fail to exclude sensitive payload columns?
+            - Are any string membership checks (e.g. `"AI" in service_type`) so broad they
+              match unrelated service types? Flag any that could produce false positives.
+
+            **P3 — Correctness**
+            - Do SQL queries reference column names that are not in the schema fixture at
+              `tests/unit/fixtures/account_usage_schema.py`? Flag missing entries in the fixture.
+            - Are there Violation() calls that embed usernames, resource names, column values, or
+              credential-adjacent strings directly in the message without redaction?
+            - Are there operator-precedence bugs (e.g. `a or b and c` without explicit parentheses)?
+            - Are there dict keys that collapse distinct values to the same constant, preventing
+              per-item tracking?
+
+            Write your findings as a markdown report with sections for each severity level.
+            Under each section, list findings as: FILE:LINE — description. If a section has no
+            findings, write "No issues found." Do not generate praise or summaries of correct code.
