@@ -193,6 +193,42 @@ class CortexThresholds:
 
 
 @dataclass(frozen=True)
+class IacDriftThresholds:
+    """Thresholds for IaC drift detection rules (Directive E, OPS_015–016)."""
+
+    # Regex patterns for IaC service account names (configurable).
+    iac_service_account_pattern: str = (
+        r"(?i)(SVC_TERRAFORM|SVC_PULUMI|SVC_DBT|SVC_SCHEMACHANGE|SVC_PERMIFROST|DATAOPS_)"
+    )
+    # Regex patterns for IaC query comments — presence in QUERY_HISTORY indicates tool usage.
+    iac_comment_patterns: tuple[str, ...] = (
+        r"(?i)terraform",
+        r"(?i)pulumi",
+        r"(?i)dbt",
+        r"(?i)schemachange",
+        r"(?i)permifrost",
+    )
+    # Minimum MANAGED_BY tag coverage fraction to consider a database "IaC-managed".
+    managed_tag_coverage_threshold: float = 0.50
+    # Days to look back in QUERY_HISTORY for drift detection.
+    drift_lookback_days: int = 30
+
+
+@dataclass(frozen=True)
+class DbtGrantsThresholds:
+    """Thresholds for dbt grant analysis rules (Directive E, GOV_025–026)."""
+
+    # Regex for functional role names (grants should target these).
+    functional_role_pattern: str = r"(?i).*_(READ|WRITE|TRANSFORM|ANALYST|LOADER)$"
+    # Regex for business role names (grants should NOT target these directly from dbt).
+    business_role_pattern: str = r"(?i).*_(TEAM|DEPT|BU|BUSINESS)$"
+    # Regex for dbt service account names.
+    dbt_service_account_pattern: str = r"(?i)(SVC_DBT|DBT_USER|DBT_SERVICE)"
+    # Regex for DBO/owner role names (schema ownership should target these).
+    dbo_role_pattern: str = r"(?i).*_(OWNER|DBO|DDL)$"
+
+
+@dataclass(frozen=True)
 class RuleThresholdConventions:
     """Rule-level thresholds. Separate from SnowfortConventions so each session
     can add its own nested block without touching core convention defaults."""
@@ -209,6 +245,8 @@ class RuleThresholdConventions:
     storage: StorageThresholds = field(default_factory=StorageThresholds)
     rbac: RbacThresholds = field(default_factory=RbacThresholds)
     sensitive_data: SensitiveDataThresholds = field(default_factory=SensitiveDataThresholds)
+    iac_drift: IacDriftThresholds = field(default_factory=IacDriftThresholds)
+    dbt_grants: DbtGrantsThresholds = field(default_factory=DbtGrantsThresholds)
 
 
 @dataclass(frozen=True)

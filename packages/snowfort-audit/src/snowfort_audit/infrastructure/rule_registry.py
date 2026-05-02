@@ -31,6 +31,8 @@ from snowfort_audit.domain.rules import (
     DataMaskingPolicyCoverageCheck,
     DataMetricFunctionsCoverageCheck,
     DataTransferMonitoringCheck,
+    DbtGrantTargetValidationCheck,
+    DbtSchemaOwnershipCheck,
     DeveloperSandboxSprawlCheck,
     DormantAdminAccountsCheck,
     DynamicTableComplexityCheck,
@@ -46,7 +48,9 @@ from snowfort_audit.domain.rules import (
     GodRoleDetectionCheck,
     HardcodedEnvCheck,
     HighChurnPermanentTableCheck,
+    IacDriftIndicatorsCheck,
     IaCDriftReadinessCheck,
+    IacToolDetectionCheck,
     IcebergTableGovernanceCheck,
     InboundShareRiskCheck,
     IncompleteDepartmentRolesCheck,
@@ -290,6 +294,11 @@ def get_all_rules(
         RoleFlowValidationCheck(conventions=conventions, telemetry=telemetry),
         UserRoleExplosionCheck(conventions=conventions, telemetry=telemetry),
         IncompleteDepartmentRolesCheck(conventions=conventions, telemetry=telemetry),
+        # Directive E — IaC drift detection + dbt grant analysis (OPS_015–016, GOV_025–026)
+        IacToolDetectionCheck(conventions=conventions, telemetry=telemetry),
+        IacDriftIndicatorsCheck(conventions=conventions, telemetry=telemetry),
+        DbtGrantTargetValidationCheck(conventions=conventions, telemetry=telemetry),
+        DbtSchemaOwnershipCheck(conventions=conventions, telemetry=telemetry),
     ]
 
 

@@ -27,6 +27,12 @@ from snowfort_audit.domain.rules.governance import (
     OutboundShareRiskCheck,
     SensitiveDataClassificationCoverageCheck,
 )
+from snowfort_audit.domain.rules.iac_drift import (
+    DbtGrantTargetValidationCheck,
+    DbtSchemaOwnershipCheck,
+    IacDriftIndicatorsCheck,
+    IacToolDetectionCheck,
+)
 from snowfort_audit.domain.rules.op_excellence import (
     AlertConfigurationCheck,
     AlertExecutionReliabilityCheck,
@@ -160,6 +166,8 @@ __all__ = [
     "DataMaskingPolicyCoverageCheck",
     "DataMetricFunctionsCoverageCheck",
     "DataTransferMonitoringCheck",
+    "DbtGrantTargetValidationCheck",
+    "DbtSchemaOwnershipCheck",
     "DeveloperSandboxSprawlCheck",
     "DynamicTableComplexityCheck",
     "DynamicTableFailureDetectionCheck",
@@ -176,6 +184,8 @@ __all__ = [
     "HardcodedEnvCheck",
     "HighChurnPermanentTableCheck",
     "IaCDriftReadinessCheck",
+    "IacDriftIndicatorsCheck",
+    "IacToolDetectionCheck",
     "IsolationPivotCheck",
     "LocalSpillageCheck",
     "MandatoryTaggingCheck",

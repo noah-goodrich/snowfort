@@ -86,6 +86,8 @@ GOV_006: []
 GOV_007: []
 GOV_008: []
 GOV_009: []
+GOV_025: []
+GOV_026: []
 GOV_030: []
 GOV_031: []
 GOV_032: []
@@ -142,6 +144,12 @@ OPS_011:
 OPS_012: []
 OPS_013: []
 OPS_014: []
+OPS_015:
+- message: No IaC tools detected. Consider adopting infrastructure-as-code (Terraform,
+    dbt, Permifrost, etc.) for Snowflake resource management.
+  resource: Account
+  severity: LOW
+OPS_016: []
 PERF_001: []
 PERF_002: []
 PERF_003: []
