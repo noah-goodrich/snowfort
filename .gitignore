@@ -14,7 +14,8 @@ coverage.json
 # Devcontainer secrets
 .devcontainer/.secrets.env
 .borg-project
-.borg/
+.borg/checkpoints/
+.borg/sessions/
 
 # Snowfort audit cache
 .snowfort/
