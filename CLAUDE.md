@@ -37,3 +37,9 @@ are in `packages/snowfort-audit/Makefile`. The CLI entry point is `snowfort_audi
 
 Cortex Code skills live in `packages/snowfort-audit/.cortex/skills/` and are auto-discovered when
 the repo is the working directory.
+
+## Learned
+
+- NEVER run pytest, ruff, mypy, or any Python toolchain command directly on the host. Always use
+  `drone exec snowfort -- <command>`. The host may not have the correct Python or venv, and
+  pre-commit hooks are configured for the container environment.
