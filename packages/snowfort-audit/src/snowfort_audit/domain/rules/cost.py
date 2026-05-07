@@ -4,7 +4,7 @@ import fnmatch
 import re
 from typing import TYPE_CHECKING, cast
 
-from snowfort_audit.domain.conventions import SnowfortConventions
+from snowfort_audit.domain.conventions import SecurityPostureThresholds, SnowfortConventions
 from snowfort_audit.domain.protocols import TelemetryPort
 from snowfort_audit.domain.rule_definitions import (
     SQL_EXCLUDE_SYSTEM_AND_SNOWFORT,
@@ -1004,8 +1004,6 @@ class InactiveUserLicenseImpactCheck(Rule):
             ),
             telemetry=telemetry,
         )
-        from snowfort_audit.domain.conventions import SecurityPostureThresholds
-
         if conventions is None:
             self._inactive_days = SecurityPostureThresholds().inactive_user_days
         else:
