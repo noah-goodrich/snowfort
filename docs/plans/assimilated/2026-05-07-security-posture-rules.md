@@ -1,5 +1,6 @@
 # Project Plan: Security Posture Rules (Article Gap Analysis)
 *Established: 2026-05-07*
+*Shipped: 2026-05-07 — PR #19 merged to main*
 
 ## Objective
 Add 8 new security-posture rules to snowfort-audit (SEC_030–SEC_036 + COST_047) covering Trust Center scanner
@@ -8,16 +9,11 @@ periodic rekeying, threat intelligence findings, and inactive user license impac
 leadership committee's review of the Snowflake Security Scanner article.
 
 ## Acceptance Criteria
-- [ ] 8 new rules registered and discoverable in `get_all_rules()` output (SEC_030–SEC_036, COST_047)
-  - Verify: `drone exec snowfort -- python -c "from snowfort_audit.infrastructure.rule_registry import get_all_rules; from snowfort_audit.domain.financials import FinancialEvaluator; rules = get_all_rules(FinancialEvaluator()); ids = [r.id for r in rules]; assert all(x in ids for x in ['SEC_030','SEC_031','SEC_032','SEC_033','SEC_034','SEC_035','SEC_036','COST_047'])"`
-- [ ] Graceful degradation: Trust Center and LOGIN_HISTORY rules return `[]` on errno 2003
-  - Verify: Unit tests assert `check_online()` returns `[]` when cursor raises error with errno=2003
-- [ ] Each rule has pass/fail/degradation unit tests
-  - Verify: `drone exec snowfort -- make test`
-- [ ] Coverage ≥ 80%
-  - Verify: `drone exec snowfort -- make coverage-check`
-- [ ] Full CI gate passes (lint + mypy + tests + coverage)
-  - Verify: `drone exec snowfort -- make check`
+- [x] 8 new rules registered and discoverable in `get_all_rules()` output (SEC_030–SEC_036, COST_047)
+- [x] Graceful degradation: Trust Center and LOGIN_HISTORY rules return `[]` on errno 2003
+- [x] Each rule has pass/fail/degradation unit tests
+- [x] Coverage ≥ 80%
+- [x] Full CI gate passes (lint + mypy + tests + coverage)
 
 ## Scope Boundaries
 - NOT building: HTML report generation or new output formats
@@ -27,10 +23,6 @@ leadership committee's review of the Snowflake Security Scanner article.
 
 ## Ship Definition
 PR opened → CI passes (`drone exec snowfort -- make check`) → merged to main.
-
-## Timeline
-Target: this session
-Estimated effort: 1 session (~2 hours)
 
 ## Risks
 - Trust Center views (`SNOWFLAKE.TRUST_CENTER.*`) have inconsistent schema paths across Snowflake versions
