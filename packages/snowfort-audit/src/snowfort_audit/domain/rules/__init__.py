@@ -4,6 +4,7 @@ from snowfort_audit.domain.rules.cost import (
     CloudServicesRatioCheck,
     DataTransferMonitoringCheck,
     HighChurnPermanentTableCheck,
+    InactiveUserLicenseImpactCheck,
     MultiClusterSafeguardCheck,
     PerWarehouseStatementTimeoutCheck,
     QASEligibilityRecommendationCheck,
@@ -115,6 +116,15 @@ from snowfort_audit.domain.rules.security_advanced import (
     ServiceUserScopeCheck,
     SnowparkContainerServicesSecurityCheck,
     TrustCenterExtensionsCheck,
+)
+from snowfort_audit.domain.rules.security_posture import (
+    BruteForceDetectionCheck,
+    LargeExportVolumeCheck,
+    PeriodicRekeyingCheck,
+    PrivateLinkRatioCheck,
+    SessionPolicyCheck,
+    ThreatIntelligenceFindingsCheck,
+    TrustCenterScannerStatusCheck,
 )
 from snowfort_audit.domain.rules.sensitive_data import (
     ContentPiiDetectionCheck,
@@ -254,4 +264,13 @@ __all__ = [
     "ZombieRoleCheck",
     "ZombieUserCheck",
     "ZombieWarehouseCheck",
+    # Directive G — Security Posture (SEC_030–036, COST_047)
+    "BruteForceDetectionCheck",
+    "InactiveUserLicenseImpactCheck",
+    "LargeExportVolumeCheck",
+    "PeriodicRekeyingCheck",
+    "PrivateLinkRatioCheck",
+    "SessionPolicyCheck",
+    "ThreatIntelligenceFindingsCheck",
+    "TrustCenterScannerStatusCheck",
 ]

@@ -128,6 +128,16 @@ from snowfort_audit.domain.rules import (
 )
 from snowfort_audit.domain.rules.cortex_cost import get_cortex_rules
 from snowfort_audit.domain.rules.cortex_governance import get_cortex_governance_rules
+from snowfort_audit.domain.rules.cost import InactiveUserLicenseImpactCheck
+from snowfort_audit.domain.rules.security_posture import (
+    BruteForceDetectionCheck,
+    LargeExportVolumeCheck,
+    PeriodicRekeyingCheck,
+    PrivateLinkRatioCheck,
+    SessionPolicyCheck,
+    ThreatIntelligenceFindingsCheck,
+    TrustCenterScannerStatusCheck,
+)
 from snowfort_audit.domain.rules.sizing import (
     AutoSuspendOptimizationCheck,
     CloneSprawlCheck,
@@ -299,6 +309,15 @@ def get_all_rules(
         IacDriftIndicatorsCheck(conventions=conventions, telemetry=telemetry),
         DbtGrantTargetValidationCheck(conventions=conventions, telemetry=telemetry),
         DbtSchemaOwnershipCheck(conventions=conventions, telemetry=telemetry),
+        # Directive G — Security Posture (SEC_030–036, COST_047)
+        TrustCenterScannerStatusCheck(telemetry=telemetry),
+        SessionPolicyCheck(telemetry=telemetry),
+        BruteForceDetectionCheck(conventions=conventions, telemetry=telemetry),
+        PrivateLinkRatioCheck(conventions=conventions, telemetry=telemetry),
+        LargeExportVolumeCheck(conventions=conventions, telemetry=telemetry),
+        PeriodicRekeyingCheck(telemetry=telemetry),
+        ThreatIntelligenceFindingsCheck(telemetry=telemetry),
+        InactiveUserLicenseImpactCheck(conventions=conventions, telemetry=telemetry),
     ]
 
 

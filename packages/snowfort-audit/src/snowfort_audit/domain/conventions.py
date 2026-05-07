@@ -193,6 +193,22 @@ class CortexThresholds:
 
 
 @dataclass(frozen=True)
+class SecurityPostureThresholds:
+    """Thresholds for security posture rules (Directive G, SEC_030–036, COST_047)."""
+
+    # SEC_032: failed login attempts from same user within window to flag brute force.
+    brute_force_attempts_threshold: int = 5
+    brute_force_window_days: int = 7
+    # SEC_033: fraction of logins via private endpoint below which to flag.
+    private_link_ratio_threshold: float = 0.80
+    # SEC_034: rows exported by a single user within window to flag large export.
+    large_export_rows_threshold: int = 1_000_000
+    large_export_window_days: int = 7
+    # COST_047: days since last login to consider a user inactive.
+    inactive_user_days: int = 90
+
+
+@dataclass(frozen=True)
 class IacDriftThresholds:
     """Thresholds for IaC drift detection rules (Directive E, OPS_015–016)."""
 
@@ -247,6 +263,7 @@ class RuleThresholdConventions:
     sensitive_data: SensitiveDataThresholds = field(default_factory=SensitiveDataThresholds)
     iac_drift: IacDriftThresholds = field(default_factory=IacDriftThresholds)
     dbt_grants: DbtGrantsThresholds = field(default_factory=DbtGrantsThresholds)
+    security_posture: SecurityPostureThresholds = field(default_factory=SecurityPostureThresholds)
 
 
 @dataclass(frozen=True)

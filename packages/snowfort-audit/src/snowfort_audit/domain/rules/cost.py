@@ -980,3 +980,70 @@ class SearchOptimizationCostBenefitCheck(Rule):
             if is_allowlisted_sf_error(exc):
                 return []
             raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
+
+
+class InactiveUserLicenseImpactCheck(Rule):
+    """COST_047: Users with no login in 90d still holding active role grants (license waste)."""
+
+    def __init__(
+        self,
+        conventions: SnowfortConventions | None = None,
+        telemetry: TelemetryPort | None = None,
+    ):
+        super().__init__(
+            "COST_047",
+            "Inactive User License Impact",
+            Severity.LOW,
+            rationale=(
+                "Users who have not logged in for an extended period but still hold active role "
+                "grants consume license seats and increase attack surface without business value."
+            ),
+            remediation=(
+                "Disable inactive users (ALTER USER <name> SET DISABLED = TRUE) or revoke their "
+                "role grants. Consider automated lifecycle management via SCIM provisioning."
+            ),
+            telemetry=telemetry,
+        )
+        from snowfort_audit.domain.conventions import SecurityPostureThresholds
+
+        if conventions is None:
+            self._inactive_days = SecurityPostureThresholds().inactive_user_days
+        else:
+            self._inactive_days = conventions.thresholds.security_posture.inactive_user_days
+
+    def check_online(
+        self,
+        cursor: SnowflakeCursorProtocol,
+        _resource_name: str | None = None,
+        *,
+        scan_context: ScanContext | None = None,
+        **_kw,
+    ) -> list[Violation]:
+        query = (
+            "SELECT u.NAME, u.LAST_SUCCESS_LOGIN, COUNT(g.ROLE) AS grant_count"
+            " FROM SNOWFLAKE.ACCOUNT_USAGE.USERS u"
+            " JOIN SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_USERS g"
+            "  ON g.GRANTEE_NAME = u.NAME AND g.DELETED_ON IS NULL"
+            " WHERE u.DELETED_ON IS NULL"
+            "  AND u.DISABLED = 'false'"
+            "  AND u.TYPE != 'SERVICE'"
+            f"  AND (u.LAST_SUCCESS_LOGIN IS NULL OR u.LAST_SUCCESS_LOGIN < DATEADD(day, -{self._inactive_days}, CURRENT_TIMESTAMP()))"
+            " GROUP BY u.NAME, u.LAST_SUCCESS_LOGIN"
+            " ORDER BY grant_count DESC"
+            " LIMIT 50"
+        )
+        try:
+            cursor.execute(query)
+            return [
+                Violation(
+                    self.id,
+                    str(row[0]),
+                    f"User '{row[0]}' has not logged in for >{self._inactive_days} days but holds {row[2]} active role grant(s).",
+                    self.severity,
+                )
+                for row in cursor.fetchall()
+            ]
+        except Exception as exc:
+            if is_allowlisted_sf_error(exc):
+                return []
+            raise RuleExecutionError(self.id, str(exc), cause=exc) from exc
