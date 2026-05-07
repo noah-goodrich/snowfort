@@ -17,7 +17,7 @@ from snowfort_audit.domain.account_config import (
 )
 from snowfort_audit.domain.conventions import SnowfortConventions
 from snowfort_audit.domain.guided import group_violations_by_concept
-from snowfort_audit.domain.results import AuditResult, AuditScorecard
+from snowfort_audit.domain.results import GRADE_A_MIN, GRADE_C_MIN, AuditResult, AuditScorecard
 from snowfort_audit.domain.rule_definitions import (
     PILLAR_COLORS,
     PILLAR_DISPLAY_ORDER,
@@ -252,7 +252,7 @@ def _render_scorecard_guided(console: Console, result: AuditResult, target_name:
     scorecard = result.scorecard
     header = f"Snowflake Well-Architected Scorecard for [cyan]{target_name}[/cyan]"
     sc_val = scorecard.compliance_score
-    bar_color = "green" if sc_val >= 90 else ("yellow" if sc_val >= 70 else "red")
+    bar_color = "green" if sc_val >= GRADE_A_MIN else ("yellow" if sc_val >= GRADE_C_MIN else "red")
     filled = round(sc_val / 100 * 30)
     bar = f"[{bar_color}]{'━' * filled}[/{bar_color}][dim]{'━' * (30 - filled)}[/dim]"
     score_text = f"Score: [bold]{sc_val}/100[/bold] ({scorecard.grade})  {bar}"
@@ -276,7 +276,7 @@ def _render_pillar_table_guided(console: Console, scorecard: AuditScorecard) -> 
             continue
         score = scorecard.pillar_scores[p]
         grade = scorecard.pillar_grades.get(p, "-")
-        pc = "green" if score >= 90 else ("yellow" if score >= 70 else "red")
+        pc = "green" if score >= GRADE_A_MIN else ("yellow" if score >= GRADE_C_MIN else "red")
         pf = round(score / 100 * 10)
         pbar = f"[{pc}]{'━' * pf}[/{pc}][dim]{'━' * (10 - pf)}[/dim]"
         pillar_table.add_row(pillar_style(p), f"{int(score)}", pbar, grade, _grade_status(grade))

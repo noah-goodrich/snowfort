@@ -21,6 +21,10 @@ from ..domain.rule_definitions import (
 # (rule_id, rule_name, duration_seconds)
 RuleTiming = tuple[str, str, float]
 
+# Zombie-user thresholds (see _is_zombie_user).
+_ZOMBIE_NEVER_LOGGED_IN_DAYS = 30
+_ZOMBIE_INACTIVE_DAYS = 90
+
 
 def _is_system_or_tool_violation(v: Violation, include_snowfort_db: bool) -> bool:
     """True if this violation's resource is in SNOWFLAKE/SNOWFORT or Snowflake-managed and should be hidden."""
@@ -52,12 +56,12 @@ def _is_zombie_user(user: Any, cols: dict[str, int], now: datetime) -> bool:
             return False
         if created.tzinfo is None:
             created = created.replace(tzinfo=timezone.utc)
-        return (now - created).days > 30
+        return (now - created).days > _ZOMBIE_NEVER_LOGGED_IN_DAYS
     if not hasattr(last_login, "tzinfo"):
         return False
     if last_login.tzinfo is None:
         last_login = last_login.replace(tzinfo=timezone.utc)
-    return (now - last_login).days > 90
+    return (now - last_login).days > _ZOMBIE_INACTIVE_DAYS
 
 
 def _derive_sso_and_zombies(
