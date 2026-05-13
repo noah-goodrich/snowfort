@@ -270,6 +270,7 @@ def _log_scan_preamble(telemetry, quiet: bool, path: str, rule_ids: tuple, corte
     help="Billing model for cost context (On-Demand vs Reserved Capacity); influences cost recommendations.",
 )
 @click.option("--quiet", "-q", is_flag=True, help="Minimal output: score and violation count only.")
+@click.option("--persist", is_flag=True, help="Persist scan results to SNOWFORT.AUDIT tables for dashboard.")
 @click.option("--profile", is_flag=True, help="Print per-rule execution time sorted by duration after scan.")
 @click.option(
     "--no-tui",
@@ -291,6 +292,7 @@ def scan(
     verbose: bool,  # noqa: ARG001
     log_level: str,
     quiet: bool,
+    persist: bool,
     profile: bool,
     no_tui: bool,
     workers: int,
@@ -395,6 +397,19 @@ def scan(
                 telemetry,
             ):
                 sys.exit(1)
+
+            # Persist scan results to SNOWFORT.AUDIT if requested
+            if persist and gateway and not offline:
+                try:
+                    from snowfort_audit.use_cases.persist_scan import PersistScanUseCase
+
+                    cur = gateway.get_cursor()
+                    scan_id = PersistScanUseCase().execute(cur, result, rules)
+                    telemetry.step(f"Scan persisted to SNOWFORT.AUDIT (scan_id: {scan_id})")
+                except Exception as exc:
+                    telemetry.error(f"Failed to persist scan: {exc}")
+            elif persist and offline:
+                telemetry.warning("--persist requires online mode (ignored in offline scan).")
 
             # Default: launch interactive TUI when in a terminal (unless --no-tui or --quiet)
             if not quiet and not no_tui and sys.stdout.isatty():

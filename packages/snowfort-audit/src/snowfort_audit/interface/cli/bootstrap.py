@@ -210,3 +210,77 @@ def demo_teardown(ctx):
     except (connection_error_type, RuntimeError) as e:
         telemetry.error(f"Demo teardown failed: {e}")
         raise click.Abort() from e
+
+
+@audit.command(name="deploy-dashboard")
+@click.option("--role", default="ACCOUNTADMIN", help="Role for deploying (needs CREATE STREAMLIT)")
+@click.pass_context
+def deploy_dashboard(ctx, role):
+    """Deploy the Snowfort WAF Audit dashboard to Streamlit-in-Snowflake.
+
+    Creates SNOWFORT.AUDIT schema if needed, uploads app files to a stage,
+    and creates/replaces the Streamlit app object.
+    """
+    from pathlib import Path
+
+    container = ctx.obj
+    telemetry = container.get("TelemetryPort")
+    connection_error_type = container.get("ConnectionErrorType")
+
+    try:
+        options = get_connection_options(container, interactive=True, role_override=role)
+        _warn_externalbrowser_headless(options, telemetry)
+        gateway_factory = container.get("SnowflakeGatewayFactory")
+        gateway = gateway_factory(options)
+        gateway.connect()
+        cur = gateway.get_cursor()
+
+        telemetry.step("Ensuring SNOWFORT.AUDIT schema exists...")
+        cur.execute("CREATE DATABASE IF NOT EXISTS SNOWFORT")
+        cur.execute("CREATE SCHEMA IF NOT EXISTS SNOWFORT.AUDIT")
+        cur.execute("CREATE STAGE IF NOT EXISTS SNOWFORT.AUDIT.STREAMLIT_STAGE")
+
+        # Upload streamlit app files
+        streamlit_dir = Path(__file__).resolve().parent.parent.parent.parent.parent / "streamlit"
+        if not streamlit_dir.exists():
+            telemetry.error(f"Streamlit app directory not found at {streamlit_dir}")
+            raise click.Abort()
+
+        telemetry.step("Uploading Streamlit app files...")
+        cur.execute(f"PUT 'file://{streamlit_dir}/snowfort_app.py' @SNOWFORT.AUDIT.STREAMLIT_STAGE/ "
+                    "AUTO_COMPRESS=FALSE OVERWRITE=TRUE")
+        cur.execute(f"PUT 'file://{streamlit_dir}/environment.yml' @SNOWFORT.AUDIT.STREAMLIT_STAGE/ "
+                    "AUTO_COMPRESS=FALSE OVERWRITE=TRUE")
+
+        # Upload pages
+        pages_dir = streamlit_dir / "pages"
+        for page_file in sorted(pages_dir.glob("*.py")):
+            cur.execute(f"PUT 'file://{page_file}' @SNOWFORT.AUDIT.STREAMLIT_STAGE/pages/ "
+                        "AUTO_COMPRESS=FALSE OVERWRITE=TRUE")
+            telemetry.step(f"  Uploaded: pages/{page_file.name}")
+
+        # Create the Streamlit object
+        telemetry.step("Creating Streamlit app...")
+        cur.execute("""
+            CREATE OR REPLACE STREAMLIT SNOWFORT.AUDIT.SNOWFORT_AUDIT_DASHBOARD
+                ROOT_LOCATION = '@SNOWFORT.AUDIT.STREAMLIT_STAGE'
+                MAIN_FILE = 'snowfort_app.py'
+                QUERY_WAREHOUSE = CURRENT_WAREHOUSE()
+                COMMENT = 'Snowfort WAF Audit Dashboard — score trends, drill-down, remediation'
+        """)
+
+        # Get the URL
+        cur.execute("SHOW STREAMLITS LIKE 'SNOWFORT_AUDIT_DASHBOARD' IN SCHEMA SNOWFORT.AUDIT")
+        rows = cur.fetchall()
+        if rows:
+            telemetry.step("Dashboard deployed successfully!")
+            telemetry.step("Open in Snowsight: Streamlit > SNOWFORT.AUDIT.SNOWFORT_AUDIT_DASHBOARD")
+        else:
+            telemetry.step("Dashboard created. Open it from Snowsight > Streamlit.")
+
+    except (connection_error_type, RuntimeError) as e:
+        telemetry.error(f"Deploy failed: {e}")
+        hint = _connection_error_hint(e)
+        if hint:
+            telemetry.error(f"Hint: {hint}")
+        raise click.Abort() from e

@@ -34,11 +34,3 @@ def test_container_resolves_online_scan_use_case_when_client_registered():
     use_case = container.get("OnlineScanUseCase")
     assert use_case is not None
     assert hasattr(use_case, "execute")
-
-
-def test_container_resolves_audit_repository():
-    """get('AuditRepository') returns SnowparkAuditRepository (session may be None)."""
-    container = AuditContainer()
-    register_all(container)
-    repo = container.get("AuditRepository")
-    assert repo is not None

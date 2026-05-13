@@ -50,6 +50,9 @@ dev = [
     "types-PyYAML>=6.0.12",
     "types-tomli>=2.0.0; python_version < '3.11'",
 ]
+deploy = [
+    "snowflake-cli>=3.0",
+]
 
 [project.scripts]
 snowfort = "snowfort_audit.__main__:main"
@@ -94,7 +97,7 @@ python_version = "3.12"
 mypy_path = "stubs"
 # Exclude root conftest.py so mypy does not see duplicate module "conftest" (tests/conftest.py is the one used by tests).
 exclude = "^conftest\\.py$"
-# No override: we supply stubs for pandas, plotly, snowflake.snowpark, tomli under stubs/.
+# No override: we supply stubs for pandas, snowflake, tomli under stubs/.
 
 [tool.importlinter]
 root_package = "snowfort_audit"
