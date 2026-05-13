@@ -1,0 +1,9 @@
+# Bootstrap configuration for snowfort
+# This file defines the minimal account foundation
+
+bootstrap:
+  admin_database: SNOWFORT
+  admin_role: SNOWFORT
+  admin_user: SVC_SNOWFORT
+  dcm_projects_schema: DCM_PROJECTS
+  snowfort_management_schema: SNOWFORT_MANAGEMENT

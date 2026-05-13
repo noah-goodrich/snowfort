@@ -29,3 +29,15 @@ class SnowflakeGovernanceRepository(GovernanceProtocol):
 
         # 4. Grant Usage on Warehouse
         self._gateway.execute(f"GRANT USAGE ON WAREHOUSE {_quote_id(warehouse)} TO ROLE {_quote_id(role)}")
+
+        # 5. Provision SNOWFORT.AUDIT schema for dashboard persistence
+        self._gateway.execute("CREATE DATABASE IF NOT EXISTS SNOWFORT")
+        self._gateway.execute("CREATE SCHEMA IF NOT EXISTS SNOWFORT.AUDIT")
+        self._gateway.execute(f"GRANT USAGE ON DATABASE SNOWFORT TO ROLE {_quote_id(role)}")
+        self._gateway.execute(f"GRANT USAGE ON SCHEMA SNOWFORT.AUDIT TO ROLE {_quote_id(role)}")
+        self._gateway.execute(
+            f"GRANT SELECT, INSERT ON ALL TABLES IN SCHEMA SNOWFORT.AUDIT TO ROLE {_quote_id(role)}"
+        )
+        self._gateway.execute(
+            f"GRANT SELECT, INSERT ON FUTURE TABLES IN SCHEMA SNOWFORT.AUDIT TO ROLE {_quote_id(role)}"
+        )

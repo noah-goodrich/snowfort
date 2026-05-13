@@ -23,9 +23,6 @@ from snowfort_audit.infrastructure.gateways.sql_validator import SqlFluffValidat
 from snowfort_audit.infrastructure.pricing_repository import YamlPricingRepository
 from snowfort_audit.infrastructure.repositories.governance import SnowflakeGovernanceRepository
 from snowfort_audit.infrastructure.repositories.manifest import YamlManifestRepository
-from snowfort_audit.infrastructure.repositories.snowpark_audit_repository import (
-    SnowparkAuditRepository,
-)
 from snowfort_audit.infrastructure.rule_registry import get_all_rules, get_rules
 from snowfort_audit.use_cases.bootstrap import BootstrapUseCase
 from snowfort_audit.use_cases.offline_scan import OfflineScanUseCase
@@ -100,16 +97,6 @@ def register_all(container: "AuditContainer") -> None:
     container.register_factory("OnlineScanUseCase", _make_online_scan)
     container.register_factory("OfflineScanUseCase", _make_offline_scan)
     container.register_factory("BootstrapUseCase", _make_bootstrap)
-
-    # Audit repository (session resolved when factory is called)
-    def _audit_repo_factory():
-        try:
-            session = container.get("SnowparkSession")
-        except ValueError:
-            session = None
-        return SnowparkAuditRepository(session)
-
-    container.register_factory("AuditRepository", _audit_repo_factory)
 
     # CLI / Interface-visible infra (no direct infra imports in Interface)
     container.register_singleton("CalculatorInterrogatorClass", CalculatorInterrogator)

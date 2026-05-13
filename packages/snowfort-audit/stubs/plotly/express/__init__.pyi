@@ -1,6 +1,0 @@
-# Minimal stub for plotly.express (streamlit_app uses px.bar).
-from typing import Any
-
-def bar(*args: Any, **kwargs: Any) -> Any: ...
-
-def __getattr__(name: str) -> Any: ...
