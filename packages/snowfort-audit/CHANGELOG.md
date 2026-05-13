@@ -4,6 +4,69 @@ All notable changes to snowfort-audit are documented here.
 
 ---
 
+## [1.1.0] — 2026-05-11
+
+### Summary
+
+v1.1.0 ships 8 new security posture rules (Directive G) and a complete Streamlit-in-Snowflake
+dashboard with scan persistence, drill-down remediation, and historical trending. Rule count:
+**164** (up from 156 in v1.0.1).
+
+### New Rules — Directive G: Security Posture (8 rules)
+
+| Rule | Name | Severity | What it checks |
+|------|------|----------|----------------|
+| SEC_030 | TrustCenterScannerStatusCheck | HIGH | Trust Center scanner packages disabled |
+| SEC_031 | SessionPolicyCheck | HIGH | No session policy in account |
+| SEC_032 | BruteForceDetectionCheck | HIGH | 5+ failed logins from same user in 7d |
+| SEC_033 | PrivateLinkRatioCheck | MEDIUM | Private-endpoint login ratio < 80% |
+| SEC_034 | LargeExportVolumeCheck | MEDIUM | User exported >1M rows in 7d |
+| SEC_035 | PeriodicRekeyingCheck | MEDIUM | Periodic rekeying not enabled |
+| SEC_036 | ThreatIntelligenceFindingsCheck | CRITICAL | Trust Center Threat Intel open findings |
+| COST_047 | InactiveUserLicenseImpactCheck | LOW | Inactive users with active grants |
+
+- All rules follow the established pattern: `is_allowlisted_sf_error()` for errno 2003 graceful
+  degradation, `RuleExecutionError` for non-recoverable errors.
+- Configurable thresholds via `SecurityPostureThresholds` in `conventions.py` (overridable in
+  pyproject.toml).
+
+### Streamlit-in-Snowflake Dashboard
+
+- **Multi-page SiS app** (`streamlit/`) with 3 pages:
+  - **Dashboard**: Compliance score KPIs with delta-from-previous, pillar score bar chart,
+    severity donut, score trend sparkline.
+  - **Explorer**: Filterable violations table with drill-down expanders showing rationale,
+    remediation key, quick-win badge, and blast radius.
+  - **Trends**: Score-over-time line chart, regression detection (>5pt drops), scan comparison
+    (new vs resolved findings between any two scans).
+
+### Scan Persistence
+
+- **`snowfort audit scan --persist`**: Writes scan results to `SNOWFORT.AUDIT.SCAN_METADATA` and
+  `SNOWFORT.AUDIT.SCAN_VIOLATIONS` tables. Schema auto-creates if SNOWFORT DB doesn't exist.
+- **`PersistScanUseCase`**: New use case handling DDL idempotency + batch INSERT.
+
+### Deployment
+
+- **`snowfort audit deploy-dashboard`**: One-command deployment via PUT + CREATE STREAMLIT.
+  Creates stage, uploads app files, creates the Streamlit object.
+- **`snowflake.yml`**: Snow CLI project config for `snow streamlit deploy` alternative.
+- **`snowflake-cli>=3.0`** added as optional `deploy` dependency group.
+
+### Bootstrap Enhancements
+
+- `snowfort audit bootstrap` now provisions `SNOWFORT.AUDIT` schema with SELECT/INSERT grants
+  on current and future tables.
+
+### Removed
+
+- `native_app/` directory (stale scaffold, replaced by deploy-dashboard command)
+- `streamlit_app.py` (single-page app, replaced by multi-page `streamlit/`)
+- `SnowparkAuditRepository` (replaced by PersistScanUseCase + direct SQL reads in SiS app)
+- Plotly and Snowpark type stubs (no longer needed)
+
+---
+
 ## [1.0.1] — 2026-05-01
 
 ### Bug Fixes
