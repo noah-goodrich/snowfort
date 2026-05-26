@@ -1,8 +1,8 @@
 # snowfort-audit
 
-Your Snowflake account is bleeding money in places you can't see. **snowfort scans it and shows you
-where.** It also checks security, performance, reliability, operations, and governance — about 160
-deterministic checks in total. The output is a 0–100 score, a letter grade (A through F), and a
+**Your Snowflake account is bleeding money in places you can't see. snowfort scans it and shows you
+where.** It also checks security, performance, reliability, operations, and governance: 164
+deterministic checks in total. The output is a 0-100 score, a letter grade (A through F), and a
 list of things to fix.
 
 ## Install
@@ -29,10 +29,10 @@ snowfort audit scan --manifest > scan.json
 
 `snowfort login` will ask for your account, user, role, and how you authenticate. Pick one:
 
-- **mfa** — password + Snowflake MFA prompt.
-- **keypair** — RSA key-pair (JWT). Recommended for service accounts.
-- **pat** — programmatic access token.
-- **externalbrowser** — SSO via your browser.
+- **mfa**: password + Snowflake MFA prompt.
+- **keypair**: RSA key-pair (JWT). Recommended for service accounts.
+- **pat**: programmatic access token.
+- **externalbrowser**: SSO via your browser.
 
 If you want to try snowfort without a Snowflake account at all, scan a folder of SQL files instead:
 
@@ -67,8 +67,6 @@ Violations (47):
 
 Add `-v` to see remediation instructions per violation.
 
----
-
 ## What snowfort is for
 
 snowfort is a **Policy-as-Code (PaC)** scanner aligned to the Snowflake **Well-Architected
@@ -77,24 +75,24 @@ produces a scorecard you can act on.
 
 ### Two modes
 
-- **Offline mode** (`--offline`) — statically analyzes project files (`manifest.yml`, SQL scripts,
+- **Offline mode** (`--offline`): statically analyzes project files (`manifest.yml`, SQL scripts,
   Jinja). No Snowflake connection required. Good for CI/CD pre-deploy gates.
-- **Online mode** (default) — connects to your live account and inspects runtime config, usage
+- **Online mode** (default): connects to your live account and inspects runtime config, usage
   history, object state, and tag compliance.
 
 ### Six WAF pillars + static analysis
 
-Every scan produces a per-pillar grade and an overall grade.
+Every scan produces a per-pillar grade and an overall grade. _Rule count last verified 2026-05-26._
 
-| Category | Roughly | Key checks |
-|---|---|---|
-| **Cost** | many | Zombie warehouses, auto-suspend, Cortex AI/Code/Agents spend, credit budgets, clone sprawl, cold storage candidates |
-| **Security** | many | Admin exposure, MFA, network perimeter, PAT governance, authorization policies, Trust Center findings, PrivateLink |
-| **Performance** | mid | Remote/local spillage, workload efficiency, cache contention, query queuing, partition pruning, Dynamic Table lag |
-| **Reliability** | small | Replication gaps, retention safety, failover completeness, Dynamic Table refresh lag |
-| **Operations** | mid | Resource monitors, mandatory tagging, IaC drift, Permifrost drift, sandbox sprawl, alerting |
-| **Governance** | mid | Future grants, object documentation, account budget, sensitive data classification, share risk |
-| **Static** | small | Hardcoded secrets, naked DROP statements, SQL anti-patterns, MERGE pattern, Dynamic Table complexity |
+| Pillar           | Rules | Examples                                                                                  |
+|:-----------------|:------|:------------------------------------------------------------------------------------------|
+| **Cost**         | 47    | Zombie warehouses, auto-suspend, Cortex AI/Code/Agents spend, credit budgets, clone sprawl|
+| **Security**     | 49    | Admin exposure, MFA, network perimeter, PAT governance, Trust Center, PrivateLink         |
+| **Performance**  | 19    | Spillage, workload efficiency, cache contention, queuing, partition pruning, DT lag       |
+| **Operations**   | 16    | Resource monitors, tagging, IaC drift, Permifrost drift, sandbox sprawl, alerting         |
+| **Reliability**  | 10    | Replication gaps, retention safety, failover completeness, Dynamic Table refresh lag      |
+| **Governance**   | 16    | Future grants, object docs, account budget, sensitive-data classification, share risk     |
+| **Static (SQL)** | 7     | Hardcoded secrets, naked DROP, SQL anti-patterns, MERGE pattern, Dynamic Table complexity |
 
 The full rule catalog with IDs, severities, and modes is in
 [`docs/RULES_CATALOG.md`](docs/RULES_CATALOG.md).
@@ -103,14 +101,12 @@ The full rule catalog with IDs, severities, and modes is in
 
 Every violation in the JSON manifest includes:
 
-- `rule_id` — e.g. `COST_002`, `SEC_016`.
-- `resource_name` — the warehouse, table, role, or user that failed.
-- `message` — human-readable description of the violation.
-- `severity` — `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`.
-- `pillar` — which WAF pillar the rule belongs to.
-- `remediation_instruction` — actionable text suitable for a human or an LLM to generate the fix.
-
----
+- `rule_id`: e.g. `COST_002`, `SEC_016`.
+- `resource_name`: the warehouse, table, role, or user that failed.
+- `message`: human-readable description of the violation.
+- `severity`: `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`.
+- `pillar`: which WAF pillar the rule belongs to.
+- `remediation_instruction`: actionable text suitable for a human or an LLM to generate the fix.
 
 ## More CLI commands
 
@@ -137,8 +133,6 @@ snowfort audit deploy-dashboard
 See [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for concurrency notes and native-app vs client-side
 behavior.
 
----
-
 ## Custom rules (extensibility)
 
 You can add your own rules without forking snowfort. Write a Python package, register it via entry
@@ -156,12 +150,10 @@ points, and snowfort picks it up automatically.
 Install your package in the same environment as `snowfort-audit` and your rules show up in the next
 scan.
 
----
-
 ## Remediation
 
 Violations carry an optional `remediation_instruction` field. snowfort itself is the
-**diagnostician** — it doesn't apply fixes. The intended flow is:
+**diagnostician**: it doesn't apply fixes. The intended flow is:
 
 - Pipe the JSON manifest to your IaC tooling.
 - Or hand it to [Cortex Code](https://docs.snowflake.com/en/user-guide/cortex-code/cortex-code) or
@@ -169,8 +161,6 @@ Violations carry an optional `remediation_instruction` field. snowfort itself is
 - Or read the manifest in a CI job and block deploys on `CRITICAL` violations.
 
 See [docs/DEFERRED_WORK.md](docs/DEFERRED_WORK.md) for the planned Cortex Code Skill.
-
----
 
 ## Local development
 
@@ -182,8 +172,6 @@ pip install -e ".[dev]"
 make test
 make coverage-check
 ```
-
----
 
 ## License
 
