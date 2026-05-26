@@ -94,8 +94,22 @@ an LLM for fix suggestions, or stick it in a CI pipeline that blocks bad deploys
   faster on big accounts.
 - [Package README](packages/snowfort-audit/README.md) — deeper notes on each mode, custom rules,
   Cortex augmentation.
+- [Contributing](CONTRIBUTING.md) — how to file a bug or open a PR.
+- [Security policy](SECURITY.md) — how to report a vulnerability.
+
+## Support
+
+I respond to issues within 7 days when life and the day job allow. I treat
+security-tagged issues as priority. I do not promise specific fixes within specific
+windows. If your business depends on a specific response time, please email me
+([goodrich.noah@gmail.com](mailto:goodrich.noah@gmail.com)) for a paid support
+arrangement.
+
+Snowfort is maintained by one person with a family and a full-time job. Filing a clear,
+reproducible bug report is the single highest-leverage thing you can do to help yours
+get fixed quickly. See [CONTRIBUTING.md](CONTRIBUTING.md) for what makes a useful issue.
 
 ## License
 
-MIT. Built by Noah Goodrich. If snowfort saves you money, a GitHub star or a sponsor click goes a
-long way.
+MIT. Built by Noah Goodrich. If snowfort saves you money, a GitHub star or a sponsor
+click goes a long way.
