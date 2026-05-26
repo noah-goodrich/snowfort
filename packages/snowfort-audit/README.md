@@ -1,166 +1,190 @@
-# Snowfort Audit: Snowflake WAF Scorecard
+# snowfort-audit
 
-**Snowfort Audit** is a Policy-as-Code (PaC) and **Well-Architected Framework (WAF)** compliance tool for Snowflake. It audits your Snowflake environment against **116 deterministic rules** across Security, Cost, Performance, Reliability, Operations, and Governance — through both static analysis and runtime inspection.
+Your Snowflake account is bleeding money in places you can't see. **snowfort scans it and shows you
+where.** It also checks security, performance, reliability, operations, and governance — about 160
+deterministic checks in total. The output is a 0–100 score, a letter grade (A through F), and a
+list of things to fix.
 
-## Key Concepts
+## Install
 
-### 1. Dual-Mode Inspection
-*   **Offline Mode (`--offline`)**: Statically analyzes project files (`manifest.yml`, SQL scripts, Jinja) for configuration errors and best practice violations. **No Snowflake connection required.**
-*   **Online Mode (Default)**: Connects to your live Snowflake account to inspect runtime configurations, usage history, object states, and tag compliance.
-
-### 2. The WAF Scorecard
-Every audit run generates a **Snowarch WAF Scorecard**, providing a 0-100 health score for each architectural pillar and an overall project grade (A–F). This output is designed for FinOps and Security team reviews.
-
-### 3. Verification Gateway
-Snowarch Audit acts as a **deterministic verification layer**: it reliably identifies WAF violations and remediation steps. Use it to validate that AI-generated or hand-written Snowflake code is safe, cost-efficient, and compliant—before or after deployment.
-
----
-
-## Rule Suite — 116 rules across 7 WAF-aligned categories
-
-> **v0.4.0** adds 26 new rules: 18 Cortex AI cost governance rules (COST_016–033), 8 additional coverage rules (Dynamic Tables, Data Sharing, Permifrost drift, sandbox sprawl, cross-region inference), and 7 Q1 2026 feature rules (PAT governance, AI_REDACT, authorization policies, Trust Center, PrivateLink, SPCS, Iceberg).
-
-| Category | Rules | Key Checks |
-|:---|:---|:---|
-| **Cost Optimization** | 35 | Zombie warehouses, auto-suspend, Cortex AI/Code/Agents/Search/Analyst cost governance, credit budgets, model allowlists, per-user quotas |
-| **Security** | 26 | Admin exposure (graph reachability), MFA, network perimeter, PAT governance, AI_REDACT coverage, authorization policies, Trust Center, PrivateLink enforcement, SPCS security |
-| **Performance** | 15 | Remote/local spillage, workload efficiency "Pincer", cache contention, query queuing, partition pruning, clustering quality, Dynamic Table lag, Gen2/Snowpark pivot |
-| **Operations** | 14 | Resource monitors, mandatory tagging, IaC drift readiness, Permifrost spec drift, developer sandbox sprawl, alert configuration, observability infrastructure |
-| **Reliability** | 10 | Replication gaps, retention safety, failover completeness, Dynamic Table refresh lag and failure detection |
-| **Governance** | 9 | Future grants anti-pattern, object documentation, account budget, sensitive data classification, Iceberg governance, inbound/outbound share risk, cross-region inference |
-| **Static Analysis** | 7 | Hardcoded secrets, naked DROP statements, SQL anti-patterns, MERGE pattern, Dynamic Table complexity |
-
-The full rule catalog with IDs, severities, and modes is in [`docs/RULES_CATALOG.md`](docs/RULES_CATALOG.md).
-
----
-
-## 🛠 Usage
-
-### Quick start (online scan)
-1. Install: `pip install snowfort-audit` (or `pipx install snowfort-audit`).
-2. **Run login with eval** so env vars are set in your shell: `eval $(snowfort login)`.
-3. Run a scan: `snowfort audit scan`.
-
-### Installation
 ```bash
-pip install snowfort-audit
+pipx install snowfort-audit
 ```
 
-For local development (editable install with dev extras), use a single spec so pip does not treat the package twice:
+`pip install snowfort-audit` also works. pipx is recommended because it keeps the CLI in its own
+isolated environment.
+
+## 5-minute quickstart
+
 ```bash
-pip install -e ".[dev]"
+# 1) Set Snowflake connection environment variables in your current shell.
+eval "$(snowfort login)"
+
+# 2) Run the scan.
+snowfort audit scan
+
+# 3) Or write a JSON manifest for CI / downstream tooling.
+snowfort audit scan --manifest > scan.json
 ```
 
-**Documentation:** [Severity & grading rubric](docs/SEVERITY_AND_GRADING.md) — how scores and rule severities are determined.
+`snowfort login` will ask for your account, user, role, and how you authenticate. Pick one:
 
-### Custom Rules (Extensibility)
-You can extend `snowfort-audit` with your own custom rules by creating a Python package and registering it via entry points.
+- **mfa** — password + Snowflake MFA prompt.
+- **keypair** — RSA key-pair (JWT). Recommended for service accounts.
+- **pat** — programmatic access token.
+- **externalbrowser** — SSO via your browser.
 
-1. Create a package with your rule class (inheriting from `snowfort_audit.domain.rule_definitions.Rule`).
-2. Expose a function that returns a list of your rules.
-3. Register it in your `pyproject.toml`:
+If you want to try snowfort without a Snowflake account at all, scan a folder of SQL files instead:
 
-```toml
-[project.entry-points."snowarch.audit.rules"]
-my_rules = "my_package.rules:get_rules"
-```
-
-When you install your package in the same environment as `snowfort-audit`, your rules will automatically be included in the scan.
-
-### 0. Run the examples (showcase)
-
-**Offline:** A sample project with intentional violations is in `examples/offline_showcase/`. From the `packages/snowarch-audit` directory:
 ```bash
-snowfort-audit scan --offline --path examples/offline_showcase
-```
-Use `-v` and `--manifest` for remediation details and JSON output.
-
-**Online:** Seed a sandbox account with WAF violations, then run the online scan:
-```bash
-snowfort-audit demo-setup   # Creates bad warehouses, users, policies, etc. (uses ACCOUNTADMIN)
-snowfort-audit scan         # Inspect live account and see the violations
-```
-From the monorepo root you can also run `snowarch-admin demo-setup` (it runs `packages/snowarch-audit/examples/generate_chaos.sql`).
-
-**Faster online scan:** Use parallel workers (multiple Snowflake connections) to reduce run time:
-```bash
-snowfort audit scan --workers 4
-```
-See [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for concurrency options and Native App vs client-side behavior.
-
-### 1. Run Offline Scan (CI/CD)
-Analyze your SQL scripts and project configuration definitions before deployment.
-```bash
-snowfort-audit scan --offline --path ./my-project
+snowfort audit scan --offline --path examples/offline_showcase
 ```
 
-#### Example Output
-The CLI renders a **Rich** scorecard: overall score and letter grade (A–F), per-pillar breakdown (Score, Grade, Status), and a violations table. Use `-v` for remediation instructions.
+## Sample output
 
 ```text
-╭─ Snowflake Well-Architected Scorecard for ./my-project ─╮
-│ Score: 94/100 (A)                                       │
-╰─────────────────────────────────────────────────────────╯
+╭─ Snowflake Well-Architected Scorecard for my-account ─╮
+│ Score: 78/100 (C)                                     │
+╰───────────────────────────────────────────────────────╯
         Pillar Breakdown
-┌──────────────┬───────┬───────┬──────────┐
-│ Pillar       │ Score │ Grade │ Status   │
-├──────────────┼───────┼───────┼──────────┤
-│ Security     │ 94    │ A     │ Healthy  │
-│ Cost         │ 100   │ A     │ Healthy  │
-└──────────────┴───────┴───────┴──────────┘
+┌──────────────┬───────┬───────┬───────────┐
+│ Pillar       │ Score │ Grade │ Status    │
+├──────────────┼───────┼───────┼───────────┤
+│ Security     │ 71    │ C     │ Attention │
+│ Cost         │ 64    │ D     │ Attention │
+│ Reliability  │ 92    │ A     │ Healthy   │
+│ Performance  │ 88    │ B     │ Healthy   │
+│ Operations   │ 79    │ C     │ Attention │
+│ Governance   │ 81    │ B     │ Healthy   │
+└──────────────┴───────┴───────┴───────────┘
 
-Violations (2):
- Severity   Rule       Resource    Message
+Violations (47):
+ Severity   Rule       Resource          Message
+ CRITICAL   SEC_002    USER_BOB          MFA not enabled on ACCOUNTADMIN.
+ HIGH       COST_002   WH_REPORTING_OLD  Warehouse unused for 142 days.
  ...
 ```
 
-### 2. Set connection env (once per session for online scan)
-**You must run `login` as an argument to `eval`** so the export lines are applied to your current shell; otherwise they are only printed and scan will not see them.
-
-```bash
-eval $(snowfort login)
-# or: source <(snowfort login)
-```
-
-Prompt for account, user, role, and authenticator; the exports set `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, etc. so the next `scan` uses them. Auth options in the menu: mfa (password+MFA), keypair (JWT), pat (token). If the variables are already set, `login` reuses them and prints the same exports.
-
-### 3. Run Online Scan (Periodic)
-Audit your live environment using the WAF Scorecard.
-```bash
-snowfort-audit scan
-```
-
-### 4. AI-Augmented Scan (Cortex)
-Use Snowflake Cortex (LLM) to synthesize findings into an Executive Summary.
-```bash
-snowfort-audit scan --cortex
-```
-
-### 5. Planning Tools (Calculator)
-Generate usage inputs for the [Snowflake Pricing Calculator](https://www.snowflake.com/pricing/calculator/).
-```bash
-snowfort-audit calculator-inputs > pricing_inputs.json
-```
-
-### 6. JSON Manifest (Integration)
-Output machine-readable violations (including `pillar` and `remediation_instruction`) for CI or downstream tools (e.g. Cortex Code Skill).
-```bash
-snowfort-audit scan --offline --path . --manifest
-```
-Each violation in the JSON includes `rule_id`, `resource_name`, `message`, `severity`, `pillar`, and `remediation_instruction` (actionable text for an LLM or human to generate fixes).
+Add `-v` to see remediation instructions per violation.
 
 ---
 
-## Remediation Instructions
-Violations carry an optional **remediation_instruction**: human/LLM-readable text describing what to do. The audit is the *diagnostician*; fixes are intended to be managed as **IaC** via admin/scaffold tooling or by consuming `--manifest` output with [Cortex Code](https://docs.snowflake.com/en/user-guide/cortex-code/cortex-code) or another LLM. See [Deferred work](docs/DEFERRED_WORK.md) for Cortex Code Skill and fix strategy.
+## What snowfort is for
+
+snowfort is a **Policy-as-Code (PaC)** scanner aligned to the Snowflake **Well-Architected
+Framework (WAF)**. It runs against either a live Snowflake account or a folder of SQL files, and it
+produces a scorecard you can act on.
+
+### Two modes
+
+- **Offline mode** (`--offline`) — statically analyzes project files (`manifest.yml`, SQL scripts,
+  Jinja). No Snowflake connection required. Good for CI/CD pre-deploy gates.
+- **Online mode** (default) — connects to your live account and inspects runtime config, usage
+  history, object state, and tag compliance.
+
+### Six WAF pillars + static analysis
+
+Every scan produces a per-pillar grade and an overall grade.
+
+| Category | Roughly | Key checks |
+|---|---|---|
+| **Cost** | many | Zombie warehouses, auto-suspend, Cortex AI/Code/Agents spend, credit budgets, clone sprawl, cold storage candidates |
+| **Security** | many | Admin exposure, MFA, network perimeter, PAT governance, authorization policies, Trust Center findings, PrivateLink |
+| **Performance** | mid | Remote/local spillage, workload efficiency, cache contention, query queuing, partition pruning, Dynamic Table lag |
+| **Reliability** | small | Replication gaps, retention safety, failover completeness, Dynamic Table refresh lag |
+| **Operations** | mid | Resource monitors, mandatory tagging, IaC drift, Permifrost drift, sandbox sprawl, alerting |
+| **Governance** | mid | Future grants, object documentation, account budget, sensitive data classification, share risk |
+| **Static** | small | Hardcoded secrets, naked DROP statements, SQL anti-patterns, MERGE pattern, Dynamic Table complexity |
+
+The full rule catalog with IDs, severities, and modes is in
+[`docs/RULES_CATALOG.md`](docs/RULES_CATALOG.md).
+
+### Output format
+
+Every violation in the JSON manifest includes:
+
+- `rule_id` — e.g. `COST_002`, `SEC_016`.
+- `resource_name` — the warehouse, table, role, or user that failed.
+- `message` — human-readable description of the violation.
+- `severity` — `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`.
+- `pillar` — which WAF pillar the rule belongs to.
+- `remediation_instruction` — actionable text suitable for a human or an LLM to generate the fix.
 
 ---
 
-## Roadmap
-- **Cortex Code Skill**: Invoke audit and generate remediation from `remediation_instruction` (see [Deferred work](docs/DEFERRED_WORK.md)).
-- **v1.0**: Native App packaging, Streamlit dashboard polish, schema security for `AUDIT_RESULTS`. Monorepo and PyPI deployment: see [MONOREPO_AND_PYPI.md](docs/MONOREPO_AND_PYPI.md).
+## More CLI commands
+
+```bash
+# Faster online scan: parallel workers (multiple Snowflake connections).
+snowfort audit scan --workers 4
+
+# List every rule with severity and pillar.
+snowfort audit rules
+
+# Generate inputs for the Snowflake pricing calculator.
+snowfort audit calculator-inputs > pricing.json
+
+# AI-augmented executive summary using Snowflake Cortex.
+snowfort audit scan --cortex
+
+# Persist scan results into SNOWFORT.AUDIT.SCAN_* tables for the dashboard.
+snowfort audit scan --persist
+
+# Deploy the Streamlit-in-Snowflake dashboard.
+snowfort audit deploy-dashboard
+```
+
+See [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for concurrency notes and native-app vs client-side
+behavior.
 
 ---
 
-## Integrating with Deployments
-`snowarch-deploy` automatically runs `snowfort-audit` in **Offline Mode** during the plan stage of your deployment pipeline, blocking deployments that violate critical WAF rules.
+## Custom rules (extensibility)
+
+You can add your own rules without forking snowfort. Write a Python package, register it via entry
+points, and snowfort picks it up automatically.
+
+1. Create a class that inherits from `snowfort_audit.domain.rule_definitions.Rule`.
+2. Expose a function that returns a list of your rules.
+3. Register it in your `pyproject.toml`:
+
+   ```toml
+   [project.entry-points."snowarch.audit.rules"]
+   my_rules = "my_package.rules:get_rules"
+   ```
+
+Install your package in the same environment as `snowfort-audit` and your rules show up in the next
+scan.
+
+---
+
+## Remediation
+
+Violations carry an optional `remediation_instruction` field. snowfort itself is the
+**diagnostician** — it doesn't apply fixes. The intended flow is:
+
+- Pipe the JSON manifest to your IaC tooling.
+- Or hand it to [Cortex Code](https://docs.snowflake.com/en/user-guide/cortex-code/cortex-code) or
+  another LLM and ask it to generate the fix.
+- Or read the manifest in a CI job and block deploys on `CRITICAL` violations.
+
+See [docs/DEFERRED_WORK.md](docs/DEFERRED_WORK.md) for the planned Cortex Code Skill.
+
+---
+
+## Local development
+
+```bash
+# Editable install with dev dependencies (single spec so pip doesn't double-resolve).
+pip install -e ".[dev]"
+
+# Run the test suite + coverage gate.
+make test
+make coverage-check
+```
+
+---
+
+## License
+
+MIT. Built by Noah Goodrich.
