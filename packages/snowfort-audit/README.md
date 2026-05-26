@@ -80,19 +80,24 @@ produces a scorecard you can act on.
 - **Online mode** (default): connects to your live account and inspects runtime config, usage
   history, object state, and tag compliance.
 
-### Six WAF pillars + static analysis
+### Six WAF pillars plus Cortex AI Governance
 
-Every scan produces a per-pillar grade and an overall grade. _Rule count last verified 2026-05-26._
+Every scan produces a per-pillar grade and an overall grade. Counts below are sourced from
+`get_all_rules()`. _Rule counts last verified 2026-05-26._
 
-| Pillar           | Rules | Examples                                                                                  |
-|:-----------------|:------|:------------------------------------------------------------------------------------------|
-| **Cost**         | 47    | Zombie warehouses, auto-suspend, Cortex AI/Code/Agents spend, credit budgets, clone sprawl|
-| **Security**     | 49    | Admin exposure, MFA, network perimeter, PAT governance, Trust Center, PrivateLink         |
-| **Performance**  | 19    | Spillage, workload efficiency, cache contention, queuing, partition pruning, DT lag       |
-| **Operations**   | 16    | Resource monitors, tagging, IaC drift, Permifrost drift, sandbox sprawl, alerting         |
-| **Reliability**  | 10    | Replication gaps, retention safety, failover completeness, Dynamic Table refresh lag      |
-| **Governance**   | 16    | Future grants, object docs, account budget, sensitive-data classification, share risk     |
-| **Static (SQL)** | 7     | Hardcoded secrets, naked DROP, SQL anti-patterns, MERGE pattern, Dynamic Table complexity |
+| Pillar                    | Rules | Examples                                                                                  |
+|:--------------------------|:------|:------------------------------------------------------------------------------------------|
+| **Security**              | 49    | Admin exposure, MFA, network perimeter, PAT governance, Trust Center, PrivateLink, static-analysis secrets/naked DROP |
+| **Cost**                  | 47    | Zombie warehouses, auto-suspend, Cortex AI/Code/Agents spend, credit budgets, clone sprawl |
+| **Performance**           | 19    | Spillage, workload efficiency, cache contention, queuing, partition pruning, DT lag, no-SELECT-star |
+| **Operations**            | 16    | Resource monitors, tagging, IaC drift, Permifrost drift, sandbox sprawl, alerting         |
+| **Governance**            | 16    | Future grants, object docs, account budget, sensitive-data classification, share risk     |
+| **Reliability**           | 10    | Replication gaps, retention safety, failover completeness, Dynamic Table refresh lag      |
+| **Cortex AI Governance**  | 7     | Cortex Search service governance, Analyst semantic-model audit, Agent governance, fine-tuning cost tracking, LLM sprawl |
+
+**Total: 164 deterministic rules** (Security and Performance include static-analysis rules per the
+internal pillar map; Cortex AI Governance is broken out separately because it's a distinct AI
+surface area, not a WAF pillar.)
 
 The full rule catalog with IDs, severities, and modes is in
 [`docs/RULES_CATALOG.md`](docs/RULES_CATALOG.md).
