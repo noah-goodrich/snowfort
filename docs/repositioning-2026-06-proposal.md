@@ -243,7 +243,157 @@ Summary count (rough, based on current 164 rules):
 
 ---
 
-### 2d. What We Are NOT Saying
+### 2d. Native-First Migration Table
+
+#### Guiding principle (applied here)
+
+Where snowfort rolls its own functionality that Snowflake now provides natively, prefer deferring
+to the native feature — as long as feature parity is maintainable. Where parity is only partial
+(e.g., native is online-only and snowfort offers offline CI gating; or snowfort adds cross-pillar
+grading the native surface lacks), keep snowfort's version first-class.
+
+Three recommendation labels:
+- **DEPRECATE** — full parity exists natively; snowfort's version adds no CI-gate, offline, or
+  cross-pillar value. Demote to context tier now; remove from scoring engine in a follow-on pass.
+- **DEMOTE** — partial parity. Native handles remediation or live detection; snowfort keeps the
+  offline gate and/or adds a grade-component the native tool lacks. Keep in manifest as context
+  tier (still reported, not scored).
+- **KEEP** — no native equivalent, or the native equivalent is online-only and snowfort's offline
+  CI gate or cross-pillar grade is genuinely unreachable natively.
+
+The logged dissent applies to every KEEP row: the standalone `--offline` CI gate is first-class
+and must not be deprecated in favor of a Skill-only surface.
+
+---
+
+#### Security pillar (SEC_*)
+
+Snowflake native surface cited: Trust Center Data Security (GA 2026-04-24), CIS Benchmark
+scanner (Trust Center), Network Policy Advisor (GA 2026-03-13), Threat Intelligence scanner
+(Trust Center GA). Source: docs.snowflake.com/en/release-notes/2026-04-24-data-security-trust-center-ga;
+Snowflake engineering blog "AI Security Remediation," 2026-06-11.
+
+| Rule group | Rule IDs | Native Snowflake feature | Parity | Recommendation |
+|:-----------|:---------|:-------------------------|:-------|:---------------|
+| MFA enforcement — admin users | SEC_002 | Trust Center CIS Benchmark checks MFA enforcement; Snowflake MFA mandate GA Oct 2026 (REQUIRE_MFA_FOR_ALL_USERS auto-enforced) | **Full** — by Oct 2026 the native parameter enforces what snowfort detects; no offline distinction (parameter is server-side) | **DEPRECATE** (after Oct 2026 deadline; demote to context now) |
+| Account-level MFA policy | SEC_016 | REQUIRE_MFA_FOR_ALL_USERS enforced natively; Trust Center flags accounts without it | **Full** — Trust Center + native enforcement; snowfort's check is redundant once native enforcement lands | **DEPRECATE** (same timeline as SEC_002) |
+| Federated / SSO auth coverage | SEC_011, SEC_015 | Trust Center Security Essentials checks auth posture; SSO enforcement is IdP-side | **Partial** — Trust Center checks presence of SSO config but not per-user SSO coverage; snowfort's per-user gap analysis has no native equivalent today | **DEMOTE** — keep in manifest, drop from scoring until native closes the gap |
+| Network perimeter (Network Policy) | SEC_003, SEC_014 | Network Policy Advisor GA 2026-03-13: what-if simulation, policy recommendations, Trust Center CIS checks network perimeter; also SEC_014 is LOW severity | **Partial** — Advisor is online-only (no offline gate); snowfort can run `--offline` against IaC YAML before a policy is deployed | **DEMOTE** — keep first-class in offline mode; demote in online-only scan context |
+| Admin role proliferation | SEC_001 | Trust Center CIS Benchmark includes privilege excess checks with daily scan + in-product remediation | **Partial** — Trust Center detects online; snowfort's role-chain traversal (SEC_001 recursive graph) catches role-chain escalations Trust Center may miss; offline gate applies | **DEMOTE** — not full parity; snowfort's graph traversal adds value |
+| Public grants | SEC_004 | Trust Center CIS covers PUBLIC role grants | **Partial** — daily online detection in Trust Center; snowfort adds offline CI gate for IaC-managed grant changes | **DEMOTE** |
+| User ownership of objects | SEC_005 | Not a CIS check; no Trust Center equivalent | **None** | **KEEP** |
+| Service user security (key-pair, no password) | SEC_006 | Not a Trust Center check; no native equivalent | **None** | **KEEP** |
+| Zombie users (inactive ≥ 90d) | SEC_007 | Trust Center Security Essentials includes inactive user detection (varies by scanner version) | **Partial** — Trust Center's check is online; snowfort adds offline CI gate and SSO-aware severity bucketing | **DEMOTE** |
+| Zombie/orphan roles | SEC_008 | No Trust Center equivalent for orphan role detection | **None** | **KEEP** |
+| Data masking policy coverage | SEC_009 | Trust Center has no masking coverage check; Snowflake classification is separate | **None** | **KEEP** |
+| Row access policy coverage | SEC_010 | No Trust Center equivalent | **None** | **KEEP** |
+| Password policy enforcement | SEC_012 | Trust Center CIS covers password policies | **Partial** — online detection; snowfort adds offline IaC gate | **DEMOTE** |
+| Data exfiltration prevention (params) | SEC_013 | Trust Center CIS checks PREVENT_UNLOAD_TO_INLINE_URL; REQUIRE_STORAGE_INTEGRATION checks | **Partial** — Trust Center detects online; offline check via snowfort is additive for CI pre-deploy | **DEMOTE** |
+| CIS Benchmark scanner enabled | SEC_017 | Meta-check: verifies Trust Center itself is configured — snowfort is the only place this check makes sense for non-Trust-Center users | **None** (no self-referential Trust Center check exists) | **KEEP** |
+| Service role / user scope (SVC_* prefix) | SEC_007_ROLE, SEC_007_USER | No Trust Center equivalent; no native role-scope enforcement | **None** | **KEEP** |
+| Read-only role / user integrity | SEC_008_ROLE, SEC_008_USER | No Trust Center equivalent | **None** | **KEEP** |
+| PAT governance (no expiry, long TTL) | SEC_018 | Snowflake PROGRAMMATIC_ACCESS_TOKENS view exists; no native alert on long expiry | **None** | **KEEP** |
+| AI_REDACT policy coverage | SEC_019 | No native coverage check exists; AI_REDACT masking is a snowfort-tracked governance gap | **None** | **KEEP** |
+| Authorization policy on warehouses | SEC_020 | No native enforcement check | **None** | **KEEP** |
+| Trust Center scanner status | SEC_030 | Meta-check (see SEC_017 logic above) — this is the posture-tier equivalent | **None** | **KEEP** |
+| Session policy enforcement | SEC_031 | Trust Center Security Essentials checks session policy presence | **Partial** — online only; snowfort adds offline check | **DEMOTE** |
+| Brute force detection | SEC_032 | Threat Intelligence scanner in Trust Center covers brute-force anomalies in real time | **Full** — Trust Center Threat Intel is the correct real-time signal; snowfort's LOGIN_HISTORY query is a lagging approximation with no unique offline value | **DEPRECATE** (replace with "check that Trust Center Threat Intel is enabled") |
+| Private Link ratio | SEC_033 | No Trust Center equivalent; native monitoring surfaces CONNECTION_TYPE but no alert | **None** | **KEEP** |
+| Large export volume | SEC_034 | No Trust Center equivalent; COPY_HISTORY analysis is snowfort-specific | **None** | **KEEP** |
+| Periodic rekeying | SEC_035 | No native enforcement check; snowfort verifies parameter existence | **None** | **KEEP** |
+| Threat Intelligence findings (open) | SEC_036 | Trust Center Threat Intel GA — this IS the native surface; snowfort's check verifies findings are not ignored | **Partial** — Trust Center surfaces findings; snowfort adds a CI-gate: "if open Threat Intel findings exist, fail the scan" which has no native CI equivalent | **DEMOTE** — keep as context or CI-only check |
+| Sensitive data: masking / tagging / RAP / over-permissive access / content PII | SEC_009, SEC_010, GOV_030–034 | No native unified sensitive-data posture check; Snowflake classification is manual; Trust Center CIS does not grade sensitive-data coverage | **None** | **KEEP** |
+
+**SEC summary (Security pillar true DEPRECATE candidates):**
+- SEC_002 (MFA enforcement) — full parity once Oct 2026 mandate lands; demote to context now
+- SEC_016 (Account MFA policy) — same timeline
+- SEC_032 (Brute force) — Trust Center Threat Intel is better; snowfort's version is redundant
+
+Everything else is KEEP or DEMOTE (partial parity, offline gate adds value, or no native equivalent
+at all). The security pillar is NOT fully commoditized: ~3 of ~36 rule IDs are true DEPRECATE
+candidates. The council doc's "~49 SEC_* rules" estimate was pre-audit; actual code shows ~36
+distinct rule IDs, and the majority stay first-class or context-tier.
+
+---
+
+#### Cost pillar (COST_*)
+
+Snowflake native surface cited: Adaptive Compute GA (auto-right-sizes warehouses in real time);
+Cost Insights AI-recommends fixes on warehouse sizing, MCW bounds, and idle warehouses.
+Source: Flexera, "Snowflake Summit 2026 recap," flexera.com/blog/perspectives/snowflake-summit-2026,
+2026-06-11.
+
+| Rule group | Rule IDs | Native Snowflake feature | Parity | Recommendation |
+|:-----------|:---------|:-------------------------|:-------|:---------------|
+| Auto-suspend configuration | COST_001 | Adaptive Compute auto-right-sizes warehouses in real time including suspension; Cost Insights flags long auto-suspend | **Full (online)** — Adaptive Compute actually fixes the problem snowfort flags; online-only, no CI IaC gate | **DEMOTE** — Adaptive Compute is the preferred path; snowfort's offline gate on `manifest.yml` / Terraform warehouse definitions retains value for config-as-code teams |
+| Zombie warehouses (no activity, auto-resume) | COST_002 | Cost Insights surfaces idle warehouse waste | **Partial** — Cost Insights flags idle online; snowfort adds offline IaC check for warehouses that were removed from config | **DEMOTE** |
+| Cloud services ratio | COST_003 | Cost Insights surfaces high CSR at warehouse level | **Partial** — online detection only; snowfort's check runs offline against ACCOUNT_USAGE and is additive for teams not on Cost Insights | **DEMOTE** |
+| Runaway query protection (account timeout) | COST_004 | No native alert exists; Snowflake default is 48h; Cost Insights does not flag this | **None** | **KEEP** |
+| Multi-cluster scaling policy | COST_005 | Cost Insights advises on MCW configuration | **Partial** — advisory only, online; snowfort provides the CI gate on Terraform MCW config | **DEMOTE** |
+| Underutilized warehouse (low avg load) | COST_006 | Adaptive Compute + Cost Insights right-sizes and flags low-load warehouses | **Full (online)** — Adaptive Compute handles this; same offline-gate caveat as COST_001 | **DEMOTE** |
+| Stale table / large unqueried tables | COST_007 | No native alert; ACCESS_HISTORY analysis is custom | **None** | **KEEP** |
+| Staging table type optimization | COST_008 | No native equivalent | **None** | **KEEP** |
+| Per-warehouse statement timeout | COST_009 | No native alert; Snowflake default is 48h | **None** | **KEEP** |
+| Query Acceleration eligibility | COST_010 | Cost Insights surfaces QAS eligibility natively | **Full** — Cost Insights AI-recommends enabling QAS where eligible | **DEPRECATE** — Cost Insights is the authoritative surface; snowfort's check is redundant |
+| Workload heterogeneity / mixed uses | COST_011 | No native equivalent; CV-based analysis is snowfort-specific | **None** | **KEEP** |
+| High-churn permanent tables (Fail-safe) | COST_012 | No native equivalent | **None** | **KEEP** |
+| Unused materialized views | COST_013 | No native equivalent | **None** | **KEEP** |
+| Automatic clustering cost/benefit | COST_014 | Cost Insights surfaces high clustering credit consumption | **Partial** — Cost Insights flags cost; snowfort adds the per-table CI gate and cost/benefit framing | **DEMOTE** |
+| Search optimization cost/benefit | COST_015 | No native Cost Insights check for SOS | **None** | **KEEP** |
+| Cortex AI cost rules | COST_016–COST_044 (cortex_cost.py) | Snowflake native AI governance (per-user spend, resource budgets, CORTEX_MODELS_ALLOWLIST) is now GA | **Partial** — native governance detects spend online; snowfort's rules check whether governance *is configured* (budgets, allowlists) — that configuration check has offline value | **DEMOTE for spend-detection rows; KEEP for "is governance configured?" rows** |
+| Data transfer / egress monitoring | COST_045 | No Cost Insights check for DATA_TRANSFER_HISTORY cross-region egress | **None** | **KEEP** |
+| Credit budget enforcement | COST_046–COST_047 | Snowflake Resource Monitors exist but require manual configuration; no native "budget exists?" gate | **None** | **KEEP** |
+| Inactive user license impact | COST_047 | Trust Center flags inactive users (online); no license-cost framing exists natively | **Partial** — overlaps SEC_007 logic; keep as informational | **DEMOTE** |
+
+**COST summary (true DEPRECATE candidates):**
+- COST_010 (QAS eligibility) — Cost Insights is the authoritative surface; full parity
+- COST_001 / COST_006 — Adaptive Compute makes these advisory; DEMOTE (not DEPRECATE because
+  offline IaC gate retains value for config-as-code teams using Terraform/IaC)
+
+The basic warehouse-sizing rules (COST_001, COST_002, COST_005, COST_006) should move to the
+context tier in scoring but remain in the manifest. Adaptive Compute now handles the runtime
+problem they flag; the CI gate on IaC definitions is the residual value.
+
+---
+
+#### Reliability (REL_*), Performance (PERF_*), Operations (OPS_*), Governance (GOV_*)
+
+Snowflake native surface cited: None found in Summit-2026 materials for these four pillars.
+Trust Center covers Security only. Cost Insights covers Cost only. No native surface grades
+Reliability, Performance-config, or Operations posture.
+
+| Pillar | Rule IDs | Native Snowflake feature | Parity | Recommendation |
+|:-------|:---------|:-------------------------|:-------|:---------------|
+| Reliability: replication gaps, Fail-over, failsafe | REL_001–REL_010 | No native unified Reliability grade or replication-gap alert | **None** | **KEEP** (all 10 rules) |
+| Performance: warehouse sizing, spillage, pruning, query patterns | PERF_001–PERF_013, PERF_020–PERF_023 | Query Profile (manual, not graded); no CI-gateable performance check | **None** | **KEEP** (all rules) |
+| Operations: resource monitors, task health, Permifrost drift, alerting config | OPS_001–OPS_016 | No native Operations WAF grade; native resource monitors exist but snowfort checks whether they are configured | **None** | **KEEP** (all 16 rules) |
+| Governance: tagging, masking, RAP, data sharing, Cortex governance | GOV_001–GOV_009, GOV_025–GOV_026, GOV_030–GOV_034 | Native AI governance (CORTEX_MODELS_ALLOWLIST, per-user budgets) covers Cortex slice; no governance grade exists | **Partial (Cortex sub-set only)** — KEEP; Cortex governance rules should check whether native controls are configured, not duplicate them | **KEEP** — but Cortex rules should detect "native governance not configured" rather than re-implementing governance |
+| Static analysis (SQL anti-patterns, offline-only) | SQL_001, STAT_001–STAT_006 | No native equivalent; offline-only rules have no native counterpart by definition | **None** | **KEEP** (entire static / SQL pillar) |
+
+---
+
+#### Migration table — executive summary
+
+| Recommendation | Count (approx.) | Rule groups |
+|:---------------|:----------------|:------------|
+| **DEPRECATE** | ~4–5 rules | SEC_002, SEC_016 (after Oct 2026 MFA mandate), SEC_032 (brute force), COST_010 (QAS eligibility) |
+| **DEMOTE** (context tier, still in manifest, not scored) | ~15–20 rules | SEC_001, SEC_003, SEC_004, SEC_007, SEC_011, SEC_012, SEC_013, SEC_015, SEC_031, SEC_036; COST_001–COST_003, COST_005–COST_006, COST_014, COST_047 |
+| **KEEP first-class** | ~139–145 rules | All REL, PERF, OPS rules; most GOV rules; SEC rules with no native equivalent; COST rules covering query timeouts, storage anomalies, Cortex cost governance, SQL anti-patterns |
+
+**Honest parity note:** the council doc described the SEC_* catalog as "~49 rules commoditized."
+Code inspection shows ~36 distinct SEC_* rule IDs. Of those, only ~3 are true DEPRECATE candidates
+with full native parity today. The rest are KEEP or DEMOTE. Summit-2026 commoditized the *frame*
+("security misconfig") more than it commoditized the actual rule implementations: Trust Center runs
+online daily, snowfort's offline gate and role-chain traversal are structurally different tools.
+
+The native-first principle is satisfied: where Adaptive Compute or Trust Center provides full
+parity, we recommend DEPRECATE (4–5 rules). Where native is online-only and snowfort adds an
+offline CI gate, we DEMOTE — the native tool is preferred at runtime, snowfort remains the CI gate.
+Everything else stays KEEP.
+
+---
+
+### 2e. What We Are NOT Saying
 
 This guardrail belongs as a visible note in any public positioning that mentions Trust Center,
 Adaptive Compute, or CoCo.
@@ -320,8 +470,14 @@ This is a proposal only. Nothing below is applied in this commit.
   Snowflake" (or equivalent)
 - [ ] Implement the `"tier": "context"` field in the rule manifest schema and update the
   scoring engine to skip context-tier rules in the pillar score computation
-- [ ] Tag the ~20-25 context-tier rules with `tier = "context"` in their rule definitions
-- [ ] Add the "Complement, not competitor" note to the package README under a "How snowfort
-  relates to Trust Center and CoCo" section
+- [ ] Tag the ~15–20 context-tier DEMOTE rules and ~4–5 DEPRECATE rules (per the native-first
+  migration table in Section 2d) with `tier = "context"` or `tier = "deprecated"` in their rule
+  definitions — see migration table for the exact rule IDs
+- [ ] Add the "Complement, not competitor" note (Section 2e) to the package README under a "How
+  snowfort relates to Trust Center and CoCo" section
+- [ ] Apply the native-first migration table (Section 2d) decisions: DEPRECATE ~4–5 rule IDs from
+  scoring engine; DEMOTE ~15–20 rule IDs to context tier; update SEC_032 to redirect to "verify
+  Trust Center Threat Intel is enabled" rather than re-detecting brute force; update COST_010 to
+  redirect to "verify Cost Insights is enabled"
 - [ ] Close PR #22 once the repositioned README is applied (this was the pre-launch-readiness
   PR; the new framing is the final piece)
