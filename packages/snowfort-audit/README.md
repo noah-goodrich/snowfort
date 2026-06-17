@@ -1,7 +1,7 @@
 # snowfort-audit
 
 **Your Snowflake account is bleeding money in places you can't see. snowfort scans it and shows you
-where.** It also checks security, performance, reliability, operations, and governance: 164
+where.** It also checks security, performance, reliability, operations, and governance: 163
 deterministic checks in total. The output is a 0-100 score, a letter grade (A through F), and a
 list of things to fix.
 
@@ -87,7 +87,7 @@ Every scan produces a per-pillar grade and an overall grade. Counts below are so
 
 | Pillar                    | Rules | Examples                                                                                  |
 |:--------------------------|:------|:------------------------------------------------------------------------------------------|
-| **Security**              | 49    | Admin exposure, MFA, network perimeter, PAT governance, Trust Center, PrivateLink, static-analysis secrets/naked DROP |
+| **Security**              | 48    | Admin exposure, MFA, network perimeter, PAT governance, Trust Center, PrivateLink, static-analysis secrets/naked DROP |
 | **Cost**                  | 47    | Zombie warehouses, auto-suspend, Cortex AI/Code/Agents spend, credit budgets, clone sprawl |
 | **Performance**           | 19    | Spillage, workload efficiency, cache contention, queuing, partition pruning, DT lag, no-SELECT-star |
 | **Operations**            | 16    | Resource monitors, tagging, IaC drift, Permifrost drift, sandbox sprawl, alerting         |
@@ -95,7 +95,7 @@ Every scan produces a per-pillar grade and an overall grade. Counts below are so
 | **Reliability**           | 10    | Replication gaps, retention safety, failover completeness, Dynamic Table refresh lag      |
 | **Cortex AI Governance**  | 7     | Cortex Search service governance, Analyst semantic-model audit, Agent governance, fine-tuning cost tracking, LLM sprawl |
 
-**Total: 164 deterministic rules** (Security and Performance include static-analysis rules per the
+**Total: 163 deterministic rules** (Security and Performance include static-analysis rules per the
 internal pillar map; Cortex AI Governance is broken out separately because it's a distinct AI
 surface area, not a WAF pillar.)
 

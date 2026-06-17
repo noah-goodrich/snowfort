@@ -1,6 +1,6 @@
 # Snowfort-Audit Rule Catalog (WAF-Aligned)
 
-The current registry holds **164 built-in rules** (last verified 2026-05-26).
+The current registry holds **163 built-in rules** (last verified 2026-06-17).
 
 The per-pillar tables below were generated from `get_all_rules()` on 2026-04-10 and
 have not been regenerated since. The category headers reflect that 2026-04-10 snapshot
@@ -8,8 +8,8 @@ have not been regenerated since. The category headers reflect that 2026-04-10 sn
 authoritative source is always the registry in
 `src/snowfort_audit/infrastructure/rule_registry.py`.
 
-Current totals by pillar (2026-05-26): Cost 47, Security 49, Performance 19,
-Operations 16, Governance 16, Reliability 10, Cortex governance 7.
+Current totals by pillar (2026-06-17): Cost 47, Security 48, Performance 19,
+Operations 16, Governance 16, Reliability 10, Cortex governance 7. Total: 163.
 
 ## Cost Optimization (COST) — 34 rules (as of 2026-04-10; now 47)
 

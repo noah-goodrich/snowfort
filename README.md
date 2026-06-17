@@ -47,7 +47,7 @@ That's it. A first scan takes a few minutes on a busy account.
 
 ## What it actually checks
 
-snowfort runs 164 checks across six areas (Snowflake calls them WAF pillars):
+snowfort runs 163 checks across six areas (Snowflake calls them WAF pillars):
 
 - **Cost** — warehouses that never sleep, oversized clusters, Cortex AI runaway spend, stale tables
   costing you fail-safe storage.
