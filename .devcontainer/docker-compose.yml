@@ -24,7 +24,6 @@ services:
       - ~/.ssh/known_hosts:/home/dev/.ssh/known_hosts:ro           # host fingerprints
       - ~/.gitconfig:/home/dev/.gitconfig:cached                  # git identity & config
       - /run/host-services/ssh-auth.sock:/run/host-services/ssh-auth.sock  # SSH agent forwarding (Docker Desktop)
-      - ~/.claude:/home/dev/.claude:cached                             # Claude Code hooks & memory
       - ~/.config/borg:/home/dev/.config/borg:cached                  # Borg registry (for hooks)
       - ~/.config/dotfiles/claude/plugins:/home/dev/.config/dotfiles/claude/plugins:cached  # Plugin marketplace source
       # host home read-only — postStartCommand copies .claude.json fresh each start
