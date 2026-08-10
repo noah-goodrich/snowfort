@@ -2,6 +2,10 @@
 
 *Date: 2026-04-06 | Status: Final (v2)*
 
+> **Note (2026-05-26):** Rule counts in this document (77, 56, etc.) reflect the
+> v0.4-era snapshot when the analysis was written. The current registry holds **164
+> built-in rules** across all six WAF pillars plus Cortex governance.
+
 ---
 
 ## The Situation

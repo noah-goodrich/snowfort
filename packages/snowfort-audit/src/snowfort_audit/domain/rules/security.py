@@ -666,7 +666,16 @@ class ZombieUserCheck(Rule):
 
 
 class ZombieRoleCheck(Rule):
-    """SEC_008: Flag Roles that are Orphans (no granted users/roles) or Empty (no privileges)."""
+    """SEC_008: Flag Roles that are Orphans (no granted users/roles) or Empty (no privileges).
+
+    Disabled by default. Runtime SQL errors against
+    ``SNOWFLAKE.ACCOUNT_USAGE.GRANTS_TO_ROLES`` have been observed on some customer
+    accounts and the cause is not yet root-caused. To re-enable for a scan, pass
+    ``--rules SEC_008`` (or include ``SEC_008`` in your ``--rules`` filter) once you
+    have confirmed the rule runs cleanly in a staging account.
+    """
+
+    default_disabled = True
 
     def __init__(self, telemetry: TelemetryPort | None = None):
         super().__init__(

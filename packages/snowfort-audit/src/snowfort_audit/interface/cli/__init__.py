@@ -143,6 +143,7 @@ def _ask(prompt: str, default: str, use_stderr: bool) -> str:
     help=f"{SNOWFORT_HEADER_MINIFIED}\n\nUsage: snowfort audit [OPTIONS] COMMAND [ARGS]...",
     context_settings={"help_option_names": ["-h", "--help"]},
 )
+@click.version_option(package_name="snowfort-audit")
 def main():
     """Snowfort – Snowflake architecture tools. Use 'snowfort audit' for WAF compliance."""
     pass
