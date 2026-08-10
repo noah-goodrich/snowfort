@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Snowfort — the only WAF scorecard for Snowflake</title>
+  <meta name="description" content="Snowfort scans your Snowflake account and tells you exactly where it's bleeding money and exposing data. Open-source, MIT-licensed, one command to install.">
+  <meta property="og:title" content="Snowfort — the only WAF scorecard for Snowflake">
+  <meta property="og:description" content="Open-source Snowflake account audit. 164 deterministic rules across all six WAF pillars. Install with pipx.">
+  <meta property="og:type" content="website">
+  <style>
+    :root {
+      --ink: #0f172a;
+      --muted: #475569;
+      --accent: #2563eb;
+      --bg: #f8fafc;
+      --code-bg: #0f172a;
+      --code-ink: #e2e8f0;
+      --rule: #e2e8f0;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+    .wrap {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 48px 24px 96px;
+    }
+    h1 {
+      font-size: 40px;
+      line-height: 1.1;
+      margin: 0 0 8px;
+      letter-spacing: -0.02em;
+    }
+    .tag {
+      font-size: 19px;
+      color: var(--muted);
+      margin: 0 0 32px;
+    }
+    h2 {
+      font-size: 22px;
+      margin: 40px 0 12px;
+      letter-spacing: -0.01em;
+    }
+    p { margin: 0 0 14px; }
+    a { color: var(--accent); }
+    a:hover { text-decoration: underline; }
+    pre {
+      background: var(--code-bg);
+      color: var(--code-ink);
+      padding: 16px 18px;
+      border-radius: 8px;
+      overflow-x: auto;
+      font: 14px/1.5 ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+      margin: 0 0 20px;
+    }
+    code {
+      background: var(--rule);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font: 14px ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+    }
+    pre code {
+      background: transparent;
+      padding: 0;
+      color: inherit;
+    }
+    .cta {
+      display: inline-block;
+      background: var(--accent);
+      color: white;
+      padding: 12px 20px;
+      border-radius: 8px;
+      text-decoration: none;
+      font-weight: 600;
+      margin-right: 8px;
+      margin-top: 8px;
+    }
+    .cta.secondary {
+      background: white;
+      color: var(--accent);
+      border: 1px solid var(--accent);
+    }
+    .cta:hover { text-decoration: none; opacity: 0.9; }
+    hr {
+      border: none;
+      border-top: 1px solid var(--rule);
+      margin: 48px 0;
+    }
+    footer {
+      color: var(--muted);
+      font-size: 14px;
+      margin-top: 48px;
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <h1>Snowfort</h1>
+    <p class="tag">The only WAF scorecard for Snowflake.</p>
+
+    <p>Your Snowflake account is bleeding money in places you cannot see, and exposing
+    data in ways you would notice if you knew where to look. Snowfort scans it and
+    tells you exactly where, scored by pillar, ranked by severity, with a remediation
+    hint on every finding.</p>
+
+    <p>One command to install. One command to scan. No agent, no vendor signup, no
+    cost. MIT-licensed open source.</p>
+
+    <h2>Install</h2>
+    <pre><code>pipx install snowfort-audit</code></pre>
+
+    <h2>Scan</h2>
+    <pre><code>eval $(snowfort login)
+snowfort audit scan</code></pre>
+
+    <p>That's it. Five minutes from install to a scored report. Offline mode is
+    available too, for scanning SQL projects in CI before deploy.</p>
+
+    <h2>How it works</h2>
+    <p>Snowfort runs <strong>164 deterministic rules</strong> across all six Snowflake
+    Well-Architected pillars: Security, Cost, Performance, Reliability, Operations,
+    and Governance, plus a Cortex AI Governance pack. Each rule checks one specific
+    configuration or usage pattern. The output is a 0–100 score per pillar, an overall
+    letter grade from A to F, and a JSON manifest that a CI pipeline or downstream
+    agent can act on.</p>
+
+    <p>The tool reads <code>ACCOUNT_USAGE</code> and runs <code>SHOW</code> /
+    <code>DESCRIBE</code> queries. It never writes to your account. There is no agent
+    to install, no third-party endpoint to phone home to. It is a Python CLI you run
+    locally.</p>
+
+    <h2>Get involved</h2>
+    <p>
+      <a class="cta" href="https://github.com/noah-goodrich/snowfort">View on GitHub</a>
+      <a class="cta secondary" href="https://github.com/sponsors/noah-goodrich">Sponsor on GitHub</a>
+    </p>
+
+    <p>File a bug, suggest a rule, or contribute a fix at
+    <a href="https://github.com/noah-goodrich/snowfort">github.com/noah-goodrich/snowfort</a>.</p>
+
+    <hr>
+
+    <footer>
+      <p>Built by <a href="https://medium.com/@noah.goodrich">Noah Goodrich</a>, a
+      Snowflake Data Superhero. Snowfort is independent open-source software and is
+      not affiliated with Snowflake Inc.</p>
+    </footer>
+  </main>
+</body>
+</html>

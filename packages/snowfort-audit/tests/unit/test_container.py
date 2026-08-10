@@ -34,3 +34,22 @@ def test_container_resolves_online_scan_use_case_when_client_registered():
     use_case = container.get("OnlineScanUseCase")
     assert use_case is not None
     assert hasattr(use_case, "execute")
+
+
+def test_container_excludes_default_disabled_rules_by_default():
+    """Default get_rules() excludes rules marked default_disabled (SEC_008 is one)."""
+    container = AuditContainer()
+    register_all(container)
+    rules = container.get_rules()
+    rule_ids = {r.id for r in rules}
+    assert "SEC_008" not in rule_ids
+
+
+def test_container_includes_default_disabled_rules_when_explicitly_opted_in():
+    """Passing --rules SEC_008 re-enables the default-disabled rule."""
+    container = AuditContainer()
+    register_all(container)
+    container.register_singleton("ScanRuleIds", frozenset({"SEC_008"}))
+    rules = container.get_rules()
+    rule_ids = {r.id for r in rules}
+    assert "SEC_008" in rule_ids

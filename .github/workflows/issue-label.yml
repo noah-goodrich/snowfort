@@ -1,0 +1,64 @@
+name: Auto-label issues
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  issues: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Label by pillar and rule prefix
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const haystack = `${issue.title}\n${issue.body || ''}`.toUpperCase();
+
+            // Pillar keyword routing. Order matters slightly: cost/security tend
+            // to be the most-flagged, so check them first. A regex is enough for
+            // v1; an LLM-based labeler can replace this later if needed.
+            const pillarMatchers = [
+              { label: 'pillar:security',    re: /\b(SECURITY|SEC_|MFA|RBAC|TRUST CENTER|PRIVATELINK|SSO|AUTH|PAT|ADMIN)\b/ },
+              { label: 'pillar:cost',        re: /\b(COST|COST_|WAREHOUSE|AUTO[- ]SUSPEND|CORTEX|CREDIT|BUDGET|BILL|ZOMBIE|UNDERUTILIZ)\b/ },
+              { label: 'pillar:performance', re: /\b(PERFORMANCE|PERF_|SPILLAGE|QUEUING|CLUSTERING|PRUNING|DYNAMIC TABLE LAG|SLOW QUERY)\b/ },
+              { label: 'pillar:reliability', re: /\b(RELIABILITY|REL_|REPLICATION|FAILOVER|RETENTION|TIME TRAVEL|BACKUP)\b/ },
+              { label: 'pillar:operations',  re: /\b(OPERATIONS|OPS_|RESOURCE MONITOR|TAGGING|IAC|PERMIFROST|ALERT|OBSERVABILITY)\b/ },
+              { label: 'pillar:governance',  re: /\b(GOVERNANCE|GOV_|MASKING|CLASSIFICATION|SHARE|ICEBERG|FUTURE GRANT)\b/ },
+              { label: 'pillar:cortex',      re: /\b(CORTEX_|CORTEX SEARCH|CORTEX ANALYST|CORTEX AGENT|CORTEX FINE)\b/ },
+              { label: 'static-analysis',    re: /\b(STAT_|SQL_|HARDCODED|NAKED DROP|SELECT \*)\b/ },
+            ];
+
+            const labels = new Set();
+            for (const { label, re } of pillarMatchers) {
+              if (re.test(haystack)) labels.add(label);
+            }
+
+            // Rule-ID extraction: SEC_001, COST_017, CORTEX_003, etc.
+            const ruleIdMatches = haystack.match(/\b(SEC|COST|PERF|REL|OPS|GOV|CORTEX|STAT|SQL)_[0-9]{3}[A-D]?\b/g) || [];
+            for (const ruleId of new Set(ruleIdMatches)) {
+              labels.add(`rule:${ruleId.toLowerCase()}`);
+            }
+
+            // Severity hint: if the issue mentions an error, traceback, or "broken",
+            // tag for triage priority.
+            if (/\b(TRACEBACK|EXCEPTION|ERROR|BROKEN|CRASH|REGRESSION)\b/.test(haystack)) {
+              labels.add('needs-triage');
+            }
+
+            if (labels.size === 0) {
+              core.info('No pillar/rule keywords matched; leaving issue unlabeled.');
+              return;
+            }
+
+            const toAdd = [...labels];
+            core.info(`Adding labels: ${toAdd.join(', ')}`);
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              labels: toAdd,
+            });

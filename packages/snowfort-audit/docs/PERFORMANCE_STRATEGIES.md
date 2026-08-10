@@ -5,9 +5,9 @@
 ## Current State
 
 A single-worker scan against a production Snowflake instance takes **multiple hours**.
-The scan executes 83 rules, each running 1-5 SQL queries independently. With
-`--workers 4-8`, account-level rules parallelize, but several structural bottlenecks
-remain.
+The scan executes 164 rules (last verified 2026-05-26), each running 1-5 SQL queries
+independently. With `--workers 4-8`, account-level rules parallelize, but several
+structural bottlenecks remain.
 
 ### Bottleneck Inventory
 

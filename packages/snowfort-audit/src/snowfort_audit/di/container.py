@@ -11,12 +11,14 @@ class AuditContainer(BaseContainer):
         self.register_telemetry(project_name="Snowfort", color="cyan", welcome_msg="WAF Audit")
 
     def _filter_rules_if_scan_rule_ids(self, rules: list) -> list:
+        """Apply rule filtering. Rules with default_disabled=True are excluded
+        unless the user explicitly opts them in via --rules."""
         try:
             scan_rule_ids = self.get("ScanRuleIds")
         except ValueError:
-            return rules
+            scan_rule_ids = None
         if scan_rule_ids is None:
-            return rules
+            return [r for r in rules if not getattr(r, "default_disabled", False)]
         return [r for r in rules if r.id in scan_rule_ids]
 
     def get_rules(self):
