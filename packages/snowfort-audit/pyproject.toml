@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [
-    { name = "Snowarch Team" }
+    { name = "Noah Goodrich" }
 ]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
